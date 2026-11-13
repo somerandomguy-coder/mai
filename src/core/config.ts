@@ -63,6 +63,13 @@ export interface Config {
 		};
 		openai: { baseUrl: string; model: string; voice: string };
 	};
+	/** The 🎙️ button: words appear while he talks, and the message sends itself when he stops. */
+	mic: {
+		/** Silence (ms) after he stops talking before the message is sent. */
+		pauseMs: number;
+		/** false = put the words in the box and let him press Enter. */
+		autoSend: boolean;
+	};
 	repair: {
 		/** Use the needle sidecar when an LLM tool call can't be fixed with plain JSON repair. */
 		useNeedle: boolean;
@@ -126,6 +133,7 @@ export const DEFAULT_CONFIG: Config = {
 		voxcpm2: { voiceRef: "" },
 		openai: { baseUrl: "http://127.0.0.1:8080", model: "vieneu-tts", voice: "default" },
 	},
+	mic: { pauseMs: 900, autoSend: true },
 	repair: { useNeedle: true, needlePort: 8765 },
 	agent: { maxAutoContinues: 3, longTask: { maxTurns: 150, maxMinutes: 90 } },
 	shell: { enabled: true, approval: "writes", timeoutSeconds: 60 },

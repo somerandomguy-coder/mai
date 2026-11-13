@@ -32,7 +32,6 @@ window.mai = {
 	],
 	clearChat: async () => ({ ok: true }),
 	onChatCleared: () => {},
-	transcribe: async () => "Xin chào Mai",
 	openSettings() {}, setMuted() {}, wake() {}, hide() {}, openLink() {}, setClickThrough() {}, moveBy() {}, setMode() {}, grab() {}, release() {},
 	feed() {}, todoAdd() {}, todoToggle() {}, todoRemove() {}, eventRemove() {},
 	planner: async () => ({

@@ -70,3 +70,59 @@ judge or vision call), which evicts the chat.
 - **Why the layout matters:** the changing time and mood block used to sit in the system prompt, before the
   history, so every turn re-read everything. It's now attached to his newest message (`buildNowNote` /
   `withNowNote` in `src/core/prompt.ts`), and turns got about 2× faster.
+
+## Live voice typing (🎙️)
+
+Goal: words show up in the box while he talks, and the message sends itself when he stops. Measured on
+2026-11-13 on the dev PC's CPU (Ryzen 5 8500G, 6 cores). The audio.cpp build is CPU-only, 6 threads, with
+Qwen3-ASR-0.6B q8_0. The 32 GB profile installs the CUDA build, where every pass is faster; that wasn't measured.
+
+```powershell
+npx tsx scripts/bench/stt-live-bench.ts <clips folder> offline regrow:1000 mai    # needs Mai's voice server
+npx tsx scripts/livestt-test.ts                                                   # VAD + auto-send logic, no server
+npx electron scripts/live-mic-e2e.mjs <clip.wav> vi "expected text"              # the real pet window (npm run build first)
+```
+
+- **Clips:** 6 Vietnamese and 6 English sentences of real read speech, 4–11 s each, from the FLEURS dev set
+  (CC BY 4.0). They aren't in the repo; any folder of `vi-*.wav` / `en-*.wav` + `.txt` works.
+- **Playback:** each clip is played in real time, in 100 ms chunks, like the mic.
+- **Error:** word error rate after lowercasing and dropping punctuation; for Vietnamese each word is a
+  syllable. Spelled-out names and numbers count as errors (one clip with "Lakkha Singh … bhajan" causes most of
+  them). With six clips per language, ±3 points is noise.
+
+| Approach | VI error | EN error | First words | Updates | Sent after he stops | Cost |
+|---|---|---|---|---|---|---|
+| Old mic: record, click stop, one request | 9.8% | 13.3% | only after he stops | none | 1.9 s VI / 1.1 s EN, after his click | none |
+| audio.cpp native streaming (`/v1/audio/transcriptions/live`, 2 s windows) | 17.8% | 22.3% | 2.5 s | every 1.8 s | 0.3 s | windows are cut blindly: words split, stray "Okay." / "Yeah." on short tails |
+| Re-send the growing clip every 1 s, no VAD | 9.8% | 13.3% | 1.3 s | every 1.2–1.5 s | 2.3 s VI / 1.2 s EN | none |
+| **Mai: Silero VAD + re-send + auto-send** | **6.9%** | **14.4%** | **1.2 s** after he starts | **~1 s** | **2.4 s VI / 1.6 s EN**, including the 0.9 s pause | 2.3 MB model, < 1 ms per 32 ms of audio on the CPU |
+| sherpa-onnx zipformer-vi int8 (CPU) | 10.1% | 97% | | | 15× faster than Qwen3-ASR | 60 MB; Vietnamese only, all caps, no punctuation or digits |
+
+**What Mai does:** the 🎙️ button streams 16 kHz audio to `src/core/livestt.ts`.
+- **Finding speech:** Silero VAD tells speech from silence and noise. A noise burst has to last 250 ms to
+  count as speech.
+- **Live words:** while he talks, the whole utterance so far is sent to Qwen3-ASR about once a second, so the
+  words keep firming up.
+- **Sending:** when he pauses, the next pass starts at once. If the pause lasts 0.9 s, that pass is the final
+  text and the message sends.
+- **In the real pet window** (`live-mic-e2e.mjs`): a Vietnamese clip came out with 0% error and an English one
+  with 9.5% (only "U.N." → "UN"). Words reached the box every 0.8–1 s.
+- **Noise:** in `livestt-test.ts`, fan and rumble noise never reach the recognizer, and speech over a fan still
+  sends.
+
+**Why this one:**
+- **Native streaming:** fast, but each 2 s window is decoded alone, so the error rate nearly doubles. That
+  makes it fine for a preview but not for the text she reads. An accurate final would need a second copy of
+  the model in offline mode (+1.1 GB RAM).
+- **Re-sending the growing utterance:** keeps one-shot accuracy and uses the model and endpoint Mai already has.
+  Each pass corrects the last one, which is exactly "partial text that firms up".
+  - **Its cost:** CPU time that grows with the length of the sentence. A 10 s sentence takes ~1.5–2 s per pass,
+    so updates slow down and sending takes longer on long sentences.
+  - **Long speech:** Qwen3-ASR decodes up to 30 s at once, so after 28 s of talking the message is sent.
+- **sherpa-onnx zipformer:** as accurate in Vietnamese and far faster, but useless for English and for mixed
+  Vietnamese/English. It would need a second model, a native add-on and its own language switch.
+- **Whisper / PhoWhisper** (with a VAD and sliding window): not measured.
+  - **Setup:** it would need a new Python + CUDA sidecar (faster-whisper / CTranslate2 + cuDNN) or whisper.cpp.
+  - **VRAM:** 1–3 GB next to gemma4:12b (~8.4 GB) and the voice.
+  - **Silence:** it makes up text on silence, so it would need the same VAD anyway.
+  - **Verdict:** Qwen3-ASR's 7–10% Vietnamese error leaves little room to win for that cost.

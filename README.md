@@ -104,8 +104,9 @@ Options: `setup.cmd -CheckOnly` (report only), `-Profile 16gb` (force a profile)
   - **VoxCPM2:** style-prompted emotion for big GPUs.
   - **Online fallback:** if a local voice is down, she uses the edge voice.
   - Speech starts sentence by sentence while she's still typing.
-  - **Mic (🎙️):** local speech recognition with Qwen3-ASR (Vietnamese + English). Right-click the mic to switch
-    language.
+  - **Mic (🎙️):** live voice typing, fully offline. Click and talk; your words appear in the box as you speak
+    (Qwen3-ASR + Silero VAD). The message sends itself when you stop for a moment. Click again to send now, Esc
+    to cancel. Vietnamese first, English too: right-click the mic to switch.
 - **Work mode for long jobs.** For big jobs ("read all 40 reports and summarize them"), she asks permission with a
   goal and step list. Once you approve, she keeps working step after step until it's done:
   - a progress bar with ⏹ to stop;
@@ -130,6 +131,7 @@ npm start               # build + run the desktop pet
 npm run tui             # same brain in the terminal (/poke /feed /todos /needs /history …)
 npx tsx scripts/repair-test.ts; npx tsx scripts/shell-test.ts; npx tsx scripts/markdown-test.ts; npx tsx scripts/needs-test.ts; npx tsx scripts/files-test.ts; npx tsx scripts/fsops-test.ts; npx tsx scripts/task-test.ts
 $env:MAI_HOME="$env:TEMP\mai-work"; npx tsx scripts/work-e2e.ts   # exploring, editing and a full long task with the real model
+npx tsx scripts/livestt-test.ts                                 # live mic: VAD, auto-send, noise (no server needed)
 npx tsx scripts/stt-test.ts                                     # mic round trip (needs Mai running)
 $env:MAI_HOME="$env:TEMP\mai-e2e"; npx tsx scripts/e2e.ts      # real-model scenarios in a throwaway profile
 npx electron scripts/screenshots/capture.cjs                   # regenerate docs/images

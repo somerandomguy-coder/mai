@@ -223,6 +223,10 @@ audio.addEventListener("pause", () => { if (!audio.ended) { speaking = false; re
 // ---------- input & toolbar ----------
 $("say-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
+  if (live) { // Enter while the mic is on: send what's in the box now
+    window.mai.liveStop("cancel");
+    endLive();
+  }
   const text = $("say").value.trim();
   if (!text) return;
   $("say").value = "";
@@ -420,142 +424,149 @@ sayBox.addEventListener("keydown", (ev) => {
   }
 });
 
-// ---------- Speech to Text (STT) (Vietnamese priority, English supported) ----------
+// ---------- 🎙️ live voice typing (Vietnamese first, English second) ----------
+// Click: listen. Words appear in the box while he talks and firm up; when he stops for a moment the message
+// sends itself. Click again (or Enter) = send now, Esc = cancel, right-click = switch language.
+// The mic is streamed as 16 kHz PCM to the main process, where Silero VAD + Qwen3-ASR (on her own voice
+// server) do the work (src/core/livestt.ts). Chromium's SpeechRecognition can't be used: it needs Google's
+// servers and fails in Electron with "network".
 const btnMic = $("btn-mic");
-let isRecording = false;
-let mediaRecorder = null;
-let audioStream = null;
-let audioChunks = [];
-let micLang = "vi-VN"; // Priority Vietnamese
+let micLang = "vi-VN"; // Vietnamese first
+let live = null; // { id, base, stream, ctx, heard }
+const langLabel = () => (micLang === "vi-VN" ? "Tiếng Việt" : "English");
 
-function updateMicUi(recording) {
-  isRecording = recording;
+function updateMicUi(state) {
   if (!btnMic) return;
-  btnMic.classList.toggle("recording", recording);
-  btnMic.textContent = recording ? "⏹️" : "🎙️";
-  btnMic.title = recording
-    ? "Recording (" + (micLang === "vi-VN" ? "Tiếng Việt" : "English") + ")… Click to finish"
-    : "Voice typing (" + (micLang === "vi-VN" ? "Tiếng Việt" : "English") + ") · Right-click to switch language";
-  if (recording) {
-    sayBox.placeholder = "Listening (" + (micLang === "vi-VN" ? "Tiếng Việt" : "English") + ")…";
-  } else {
-    sayBox.placeholder = "Talk to her…";
-  }
+  btnMic.classList.toggle("listening", state === "listening");
+  btnMic.classList.toggle("recording", state === "speech");
+  btnMic.textContent = state ? "⏹️" : "🎙️";
+  btnMic.title = state
+    ? `Listening (${langLabel()})… it sends when you stop talking · click = send now · Esc = cancel`
+    : `Voice typing (${langLabel()}) · right-click to switch language`;
+  sayBox.placeholder = state === "listening" ? `Listening (${langLabel()})… just talk` : state === "speech" ? "…" : "Talk to her…";
+  sayBox.classList.toggle("live", !!state);
 }
 
-async function stopSTT() {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    try { mediaRecorder.stop(); } catch {}
-  }
-  if (audioStream) {
-    audioStream.getTracks().forEach((t) => t.stop());
-    audioStream = null;
-  }
-  updateMicUi(false);
+/** What he typed before clicking the mic, plus what he's saying now. */
+function showLiveText(text) {
+  sayBox.value = live.base && text ? `${live.base} ${text}` : live.base || text;
+  growInput();
+  sayBox.scrollTop = sayBox.scrollHeight;
 }
 
-// Chromium's SpeechRecognition needs Google's servers and an API key, which Electron doesn't have: it
-// fails with "network" after you've already started talking. Mai always records locally instead and
-// transcribes with Qwen3-ASR on her own voice server.
-async function startSTT() {
-  await startMediaRecorder();
+function stopMicAudio(l) {
+  if (!l) return;
+  if (l.stream) l.stream.getTracks().forEach((t) => t.stop());
+  if (l.ctx) l.ctx.close().catch(() => {});
 }
 
-/** Decode any recording the browser made (webm/opus…) and re-encode it as 16 kHz mono 16-bit WAV. */
-async function toWav16k(blob) {
-  const ctx = new AudioContext();
-  const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-  ctx.close();
-  const rate = 16000;
-  const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
-  const src = offline.createBufferSource();
-  src.buffer = decoded;
-  src.connect(offline.destination);
-  src.start();
-  const samples = (await offline.startRendering()).getChannelData(0);
-  const out = new DataView(new ArrayBuffer(44 + samples.length * 2));
-  const str = (o, t) => { for (let i = 0; i < t.length; i++) out.setUint8(o + i, t.charCodeAt(i)); };
-  str(0, "RIFF"); out.setUint32(4, 36 + samples.length * 2, true); str(8, "WAVE");
-  str(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
-  out.setUint32(24, rate, true); out.setUint32(28, rate * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
-  str(36, "data"); out.setUint32(40, samples.length * 2, true);
-  for (let i = 0; i < samples.length; i++) {
-    const v = Math.max(-1, Math.min(1, samples[i]));
-    out.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
-  }
-  return { wav: new Uint8Array(out.buffer), seconds: decoded.duration };
-}
-
-async function startMediaRecorder() {
+async function startLive() {
+  const l = { id: 0, base: sayBox.value.trim(), stream: null, ctx: null, heard: false };
+  live = l;
+  updateMicUi("listening");
   try {
+    // Start the listener first (it loads the VAD), so no audio is dropped.
+    l.id = await window.mai.liveStart({ lang: micLang === "vi-VN" ? "vi" : "en" });
+    if (live !== l) return window.mai.liveStop("cancel");
     const savedId = localStorage.getItem("mai_mic_device_id") || "";
-    const constraints = {
-      audio: savedId ? { deviceId: { exact: savedId } } : true,
-    };
-    audioStream = await navigator.mediaDevices.getUserMedia(constraints);
-    audioChunks = [];
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : MediaRecorder.isTypeSupported("audio/ogg")
-        ? "audio/ogg"
-        : "audio/webm";
-    mediaRecorder = new MediaRecorder(audioStream, { mimeType });
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) audioChunks.push(e.data);
-    };
-    mediaRecorder.onstop = async () => {
-      if (audioStream) {
-        audioStream.getTracks().forEach((t) => t.stop());
-        audioStream = null;
-      }
-      if (!audioChunks.length) {
-        updateMicUi(false);
-        return;
-      }
-      const blob = new Blob(audioChunks, { type: mimeType });
-      sayBox.placeholder = "Transcribing voice…";
-      try {
-        const { wav, seconds } = await toWav16k(blob);
-        if (seconds < 0.4) throw new Error("That was too short. Hold the mic a little longer.");
-        const text = await window.mai.transcribe({ wav, lang: micLang === "vi-VN" ? "vi" : "en" });
-        if (text && text.trim()) {
-          sayBox.value = (sayBox.value ? sayBox.value + " " : "") + text.trim();
-          growInput();
-          sayBox.focus();
-        } else {
-          showBubble("Could not detect speech. Try speaking closer to the microphone.", { meta: "mic" });
-        }
-      } catch (err) {
-        // ipcRenderer wraps errors as "Error invoking remote method …: Error: <reason>"; show just the reason.
-        showBubble("🎙️ " + String(err.message || err).replace(/^.*Error: /, ""), { meta: "voice input" });
-      } finally {
-        updateMicUi(false);
-      }
-    };
-    updateMicUi(true);
-    mediaRecorder.start();
+    const opts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    l.stream = await navigator.mediaDevices.getUserMedia({ audio: savedId ? { ...opts, deviceId: { exact: savedId } } : opts });
+    try {
+      l.ctx = new AudioContext({ sampleRate: 16000 });
+    } catch {
+      l.ctx = new AudioContext(); // the worklet resamples
+    }
+    await l.ctx.audioWorklet.addModule("mic-worklet.js");
+    const tap = new AudioWorkletNode(l.ctx, "mic-tap", { numberOfInputs: 1, numberOfOutputs: 0 });
+    tap.port.onmessage = (e) => { if (live === l) window.mai.liveAudio(new Uint8Array(e.data)); };
+    l.ctx.createMediaStreamSource(l.stream).connect(tap);
+    if (live !== l) stopMicAudio(l);
   } catch (err) {
-    updateMicUi(false);
-    showBubble("Microphone error: " + err.message, { meta: "mic error" });
+    if (live === l) {
+      live = null;
+      stopMicAudio(l);
+      updateMicUi(null);
+      window.mai.liveStop("cancel");
+      showBubble("🎙️ " + String(err.message || err).replace(/^.*Error: /, ""), { meta: "voice input" });
+    }
   }
 }
+
+/** send = keep what he said (and send it); cancel = put the box back the way it was. */
+function stopLive(how) {
+  if (!live) return;
+  if (how === "cancel") {
+    sayBox.value = live.base;
+    growInput();
+  }
+  window.mai.liveStop(how);
+  if (how === "cancel" || !live.id) endLive();
+}
+
+function endLive() {
+  const l = live;
+  live = null;
+  stopMicAudio(l);
+  updateMicUi(null);
+}
+
+window.mai.onLive((ev) => {
+  const l = live;
+  if (!l || ev.id !== l.id) return;
+  switch (ev.type) {
+    case "speech":
+      updateMicUi("speech");
+      break;
+    case "partial":
+      l.heard = true;
+      showLiveText(ev.text);
+      break;
+    case "final":
+      showLiveText(ev.text);
+      endLive();
+      if (ev.autoSend) $("say-form").requestSubmit();
+      else sayBox.focus();
+      break;
+    case "nospeech":
+      sayBox.value = l.base;
+      growInput();
+      endLive();
+      showBubble("🎙️ I didn't catch anything. Click the mic and talk; it sends when you stop.", { meta: "voice input" });
+      break;
+    case "error":
+      sayBox.value = l.base;
+      growInput();
+      endLive();
+      showBubble("🎙️ " + String(ev.message || "").replace(/^.*Error: /, ""), { meta: "voice input" });
+      break;
+    case "end":
+      endLive();
+      break;
+  }
+});
 
 if (btnMic) {
-  btnMic.addEventListener("click", () => {
-    if (isRecording) {
-      stopSTT();
-    } else {
-      startSTT();
-    }
-  });
-  // Right-click to switch between Tiếng Việt (priority default) and English
+  btnMic.addEventListener("click", () => (live ? stopLive("send") : startLive()));
   btnMic.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
     micLang = micLang === "vi-VN" ? "en-US" : "vi-VN";
-    btnMic.title = "Voice typing (" + (micLang === "vi-VN" ? "Tiếng Việt" : "English") + ") · Right-click to switch language";
+    updateMicUi(null);
     showBubble("Switched voice input to: " + (micLang === "vi-VN" ? "Tiếng Việt 🇻🇳" : "English 🇬🇧"), { meta: "language" });
   });
 }
+// Esc cancels; typing in the box takes over from the mic (keeping the words so far).
+document.addEventListener("keydown", (ev) => {
+  if (live && ev.key === "Escape") {
+    ev.preventDefault();
+    stopLive("cancel");
+  }
+});
+sayBox.addEventListener("input", () => {
+  if (!live) return;
+  live.base = sayBox.value.trim();
+  window.mai.liveStop("cancel");
+  endLive();
+});
 
 // ---------- click-through: empty, transparent parts of the window don't block the desktop ----------
 let clickThrough = null;

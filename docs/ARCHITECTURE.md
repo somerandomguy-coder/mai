@@ -17,7 +17,7 @@
                    │                           │
            Ollama :11434              sidecars (sidecars.ts)
            mai-brain + tev1 judge     ├ Python :8765  needle repair + sea-g2p phonemizer
-                                      └ audio.cpp :8080  VieNeu (+ VoxCPM2)
+                                      └ audio.cpp :8080  VieNeu (+ VoxCPM2), Qwen3-ASR (mic)
 ```
 
 `src/core` has no Electron imports, so the same brain runs in the terminal (`src/tui.ts`) and in the tests.
@@ -44,6 +44,21 @@
      model `ollama.judgeModel` via `POST /v1/systemone` on every reply (~80 ms). With no decision model, her
      own model judges, but only replies that make claims, promise work or used tools. CONTINUE or
      FABRICATED nudges her to go on (at most `agent.maxAutoContinues`).
+
+## Live voice typing (🎙️)
+
+1. **Click.** `pet.js` asks the main process to start a `LiveTranscriber` (`livestt.ts`) and stops her voice.
+   An AudioWorklet (`mic-worklet.js`) sends 16 kHz mono PCM every 100 ms over IPC.
+2. **VAD.** Silero VAD (`vad.ts`, onnxruntime-web on the CPU) scores each 32 ms frame. 250 ms of speech starts
+   an utterance; silence and steady noise never do. Without the model it falls back to a loudness check.
+3. **Partials.** While he talks, the whole utterance so far goes to Qwen3-ASR (`stt.ts`) about once a second,
+   one request at a time. Each answer replaces the words in the box (in grey italics), so the text firms up.
+4. **Auto-send.** When he pauses, a pass starts right away. If the silence reaches `mic.pauseMs` (900 ms), that
+   pass is the final text and the pet submits it (`mic.autoSend`).
+   - **Stop and cancel:** clicking ⏹️ sends now, Esc cancels, typing takes over.
+   - **No speech:** nothing for 10 s just stops listening.
+5. **Why not native streaming:** audio.cpp's `/v1/audio/transcriptions/live` decodes fixed 2 s windows on their
+   own and nearly doubled the error rate; numbers in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Work mode (long tasks)
 
@@ -81,7 +96,7 @@
 |---|---|
 | File exploring / editing | `src/core/fsops.ts` (walk, find, search, exact edits, insert, backups) |
 | Work mode (long tasks) | `src/core/longtask.ts` (task board) + the work-mode branch of `agent_before_settle` in `brain.ts` |
-| Mic / speech recognition | `src/core/stt.ts` (Qwen3-ASR via audio.cpp), `toWav16k` in `pet.js` |
+| Mic / live voice typing | `src/core/livestt.ts` (VAD → partials → auto-send), `src/core/vad.ts` (Silero), `src/core/stt.ts` (Qwen3-ASR request), `mic-worklet.js` + the 🎙️ block in `pet.js` |
 | Add a tool | `src/core/tools.ts` (`defineTool`, add to the returned list; give it a label in `TOOL_LABEL` in `pet.js`) |
 | A new need / tweak rates | `src/core/needs.ts` |
 | Prompt structure | `src/core/prompt.ts` |
@@ -104,7 +119,10 @@
 | `npx tsx scripts/fsops-test.ts` | find/search/tree, exact edits, insert by anchor, CRLF/BOM, backups |
 | `npx tsx scripts/task-test.ts` | work-mode task board: steps, notes, budget, restart |
 | `$env:MAI_HOME="$env:TEMP\mai-work"; npx tsx scripts/work-e2e.ts` | real model: explore, edit, and long tasks looped to completion |
+| `npx tsx scripts/livestt-test.ts` | live mic logic with the real Silero VAD: partials, one auto-send, short pauses, noise, stop/cancel |
 | `npx tsx scripts/stt-test.ts` | mic round trip VieNeu → Qwen3-ASR (needs Mai's voice server running) |
+| `npx electron scripts/live-mic-e2e.mjs <wav> vi` | the real pet window with a fake mic, live transcription, auto-send (needs the voice server + `npm run build`) |
+| `npx tsx scripts/bench/stt-live-bench.ts <clips>` | live voice typing latency/accuracy ([BENCHMARKS.md](BENCHMARKS.md)) |
 | `npx tsx scripts/files-test.ts [--vision]` | read_file across ~15 formats (+ real vision model) |
 | `node scripts/check-sprites.mjs [dir]` | sprite set validator |
 | `$env:MAI_HOME="$env:TEMP\mai-e2e"; npx tsx scripts/e2e.ts` | real-model scenarios (needs Ollama) |

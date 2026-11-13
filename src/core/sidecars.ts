@@ -2,6 +2,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "./config.js";
+import { pcmToWav } from "./livestt.js";
 import { APP_ROOT, paths } from "./paths.js";
 
 const AUDIOCPP = join(APP_ROOT, "sidecars", "audiocpp");
@@ -152,6 +153,16 @@ export class Sidecars {
 				body: JSON.stringify({ model: "vieneu", input: "sˈin tʃˈaː2w.", response_format: "wav" }),
 				signal: AbortSignal.timeout(120_000),
 			});
+		} catch {
+			/* best effort */
+		}
+		// Load the speech recognizer too (~1-3 s), or the first words of his first 🎙️ use show up late.
+		if (!existsSync(ASR_MODEL)) return;
+		try {
+			const form = new FormData();
+			form.append("file", new Blob([new Uint8Array(pcmToWav(new Int16Array(8000)))], { type: "audio/wav" }), "warmup.wav");
+			form.append("model", ASR_MODEL_ID);
+			await fetch(`${base}/v1/audio/transcriptions`, { method: "POST", body: form, signal: AbortSignal.timeout(60_000) });
 		} catch {
 			/* best effort */
 		}

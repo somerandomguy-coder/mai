@@ -19,7 +19,8 @@
     "fflate": "^0.8.3",
     "jsonrepair": "^3.15.0",
     "msedge-tts": "^2.1.1",
-    "officeparser": "^8.3.0"
+    "officeparser": "^8.3.0",
+    "onnxruntime-web": "1.30.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

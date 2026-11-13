@@ -31,6 +31,26 @@ instead. Run `setup.cmd` to upgrade Ollama and download it.
   `.mai-companion\state\tts-test`.
 - VoxCPM2 needs the CUDA build. Re-run setup, or `scripts\setup-vieneu.ps1 -Cuda -Expressive`.
 
+### The mic (🎙️) doesn't type, or sends too early / too late
+- **How it works:** click 🎙️ and just talk. Words show up in the box as you speak, and the message sends itself
+  after about a second of quiet. Click ⏹️ to send right away, or press **Esc** to cancel.
+- **"Speech recognition isn't installed yet":** run `setup.cmd`.
+- **"The voice server … isn't answering":** the mic uses her local voice server. Check
+  `stateaudiocpp-server.log`, then restart Mai.
+- **"I didn't catch anything":**
+  - pick the right microphone in ⚙ → Settings → *Microphone & Voice Input* (press *Test Mic*: the meter should
+    move when you talk);
+  - talk a little closer.
+  - Background noise alone doesn't trigger it, but a TV or other people talking can.
+- **Wrong language:** right-click 🎙️ to switch between Tiếng Việt and English.
+- **It sends before you've finished a thought:** raise Settings → Mic → *Pause before sending* (e.g. 1500 ms).
+- **You'd rather press Enter yourself:** untick *Send by itself*.
+- **Words lag behind on long sentences:** each update re-reads the whole sentence. On the CPU voice build
+  that takes ~1.5 s for a 10 s sentence; the CUDA build (32 GB profile, or `scriptssetup-vieneu.ps1 -Cuda`) is
+  faster.
+- **`setup.cmd -CheckOnly` says "Silero VAD … need":** run `setup.cmd`. Until then the mic falls back to a
+  simple loudness check, which noise can trigger.
+
 ### Windows asks about `audiocpp_server.exe` or `python.exe`
 They're her local voice server and helper, listening on 127.0.0.1 only. Allow them.
 

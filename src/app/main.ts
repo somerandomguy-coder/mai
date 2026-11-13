@@ -9,7 +9,8 @@ import { Heartbeat } from "../core/heartbeat.js";
 import { APP_ROOT, paths } from "../core/paths.js";
 import { PERSONA_FILES, type PersonaFile } from "../core/persona.js";
 import { vieneuVoices } from "../core/sidecars.js";
-import { transcribeAudio } from "../core/stt.js";
+import { LiveTranscriber } from "../core/livestt.js";
+import { assertAsrInstalled, transcribeAudio } from "../core/stt.js";
 import { Speaker } from "../core/tts.js";
 import { ROAM_SIZE, Roamer } from "./roam.js";
 
@@ -258,10 +259,32 @@ function registerIpc(): void {
 		settingsWin?.webContents.send("chat-cleared");
 		return { ok: true };
 	});
-	// Errors propagate to the pet, which shows the reason in her bubble.
-	ipcMain.handle("transcribe-audio", (_e, payload: { wav: Uint8Array; lang?: "vi" | "en" | "auto" }) =>
-		transcribeAudio(Buffer.from(payload.wav), brain.cfg, { lang: payload.lang ?? "vi" }),
-	);
+	// Live voice typing: the pet streams 16 kHz mic audio, partial/final text comes back as "live-stt" events
+	// (errors too, which the pet shows in her bubble).
+	// Events carry the session id, so a late event from a cancelled session can't touch the next one.
+	let live: LiveTranscriber | undefined;
+	let liveId = 0;
+	ipcMain.handle("live-stt-start", async (_e, args: { lang?: "vi" | "en" | "auto" }) => {
+		const id = ++liveId;
+		live?.cancel();
+		assertAsrInstalled();
+		stopSpeech(); // he's talking now, and her voice would leak into the mic
+		const t: LiveTranscriber = new LiveTranscriber(
+			(wav) => transcribeAudio(wav, brain.cfg, { lang: args.lang ?? "vi" }),
+			(ev) => {
+				pet?.webContents.send("live-stt", { ...ev, id, ...(ev.type === "final" ? { autoSend: brain.cfg.mic.autoSend !== false } : {}) });
+				if (ev.type === "end" && live === t) live = undefined;
+			},
+			{ pauseMs: Math.max(300, Number(brain.cfg.mic.pauseMs) || 900) },
+		);
+		live = t;
+		await t.start();
+		return id;
+	});
+	ipcMain.on("live-stt-audio", (_e, pcm: Uint8Array) => {
+		live?.push(new Int16Array(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + (pcm.byteLength & ~1))));
+	});
+	ipcMain.handle("live-stt-stop", (_e, how: "send" | "cancel") => (how === "cancel" ? live?.cancel() : live?.finish()));
 	ipcMain.handle("sprite", () => {
 		const dir = spriteDir(brain.cfg.spriteSet);
 		return { base: `${pathToFileURL(dir).href}/`, manifest: JSON.parse(readFileSync(join(dir, "sprite.json"), "utf8")) };

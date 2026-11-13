@@ -377,6 +377,19 @@ if ($NoVoice) { Say "skip" "local voice (-NoVoice): she'll use the online edge v
 		}
 	}
 	$voiceEngine = $(if ($wantVox) { "voxcpm2" } else { "vieneu" })
+	# Live voice typing: Silero VAD hears when he starts and stops talking (MIT, 2.3 MB, runs on the CPU).
+	$vadFile = Join-Path $Root "sidecars\audiocpp\models\silero-vad\silero_vad.onnx"
+	$vadSha = "2623A2953F6FF3D2C1E61740C6CDB7168133479B267DFEF114A4A3CC5BDD788F"
+	if ((Test-Path $vadFile) -and ((Get-FileHash $vadFile -Algorithm SHA256).Hash -eq $vadSha)) { Ok "Silero VAD (live voice typing)" } else {
+		Todo "Silero VAD for live voice typing (2.3 MB)"
+		if (-not $CheckOnly) {
+			New-Item -ItemType Directory -Force (Split-Path $vadFile) | Out-Null
+			Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx" -OutFile "$vadFile.part"
+			if ((Get-FileHash "$vadFile.part" -Algorithm SHA256).Hash -ne $vadSha) { Remove-Item "$vadFile.part"; Fail "Silero VAD download is corrupt; run setup again" }
+			Move-Item -Force "$vadFile.part" $vadFile
+			Ok "Silero VAD installed"
+		}
+	}
 }
 
 # ---------------------------------------------------------------- config

@@ -138,6 +138,10 @@ const FIELDS = [
     ["tts.openai.model", "Local TTS model", "text"],
     ["tts.openai.voice", "Local TTS voice", "text"],
   ]],
+  ["Mic", [
+    ["mic.autoSend", "Send by itself when I stop talking", "bool"],
+    ["mic.pauseMs", "Pause before sending (ms, e.g. 900)", "number"],
+  ]],
   ["Hands", [
     ["quests.enabled", "Side quests", "bool"],
     ["quests.maxActive", "Max active quests", "number"],

@@ -9,15 +9,19 @@ export interface TranscribeOptions {
 
 const LANGUAGE_NAME = { vi: "Vietnamese", en: "English" } as const;
 
-/**
- * Speech → text for the 🎙️ button, using Qwen3-ASR on the local audio.cpp server.
- * The pet window converts the recording to 16 kHz mono WAV first: that is the only format the server's
- * transcription route accepts. Errors are thrown (not swallowed) so the bubble can say what went wrong.
- */
-export async function transcribeAudio(wav: Buffer, cfg: Config, opts: TranscribeOptions = {}): Promise<string> {
+export function assertAsrInstalled(): void {
 	if (!existsSync(ASR_MODEL)) {
 		throw new Error("Speech recognition isn't installed yet. Run setup.cmd (or scripts\\setup-vieneu.ps1) once.");
 	}
+}
+
+/**
+ * Speech → text with Qwen3-ASR on the local audio.cpp server. The 🎙️ button calls this about once a second
+ * on the growing utterance (livestt.ts). Input is 16 kHz mono WAV: the only format the server's transcription
+ * route accepts. Errors are thrown (not swallowed) so the bubble can say what went wrong.
+ */
+export async function transcribeAudio(wav: Buffer, cfg: Config, opts: TranscribeOptions = {}): Promise<string> {
+	assertAsrInstalled();
 	if (wav.length < 44 || wav.toString("ascii", 0, 4) !== "RIFF") throw new Error("Recording isn't a WAV file.");
 	const form = new FormData();
 	form.append("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "voice.wav");

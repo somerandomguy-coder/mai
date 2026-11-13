@@ -46,6 +46,10 @@ Write-Host "2a/3 Qwen3-ASR 0.6B (q8_0, 1.15 GB): speech recognition for the mic 
 $asr = Join-Path $ac "models\qwen3-asr"
 New-Item -ItemType Directory -Force $asr | Out-Null
 Get-File "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf" (Join-Path $asr "qwen3-asr-0.6b-q8_0.gguf")
+# Silero VAD v5 (MIT, 2.3 MB): hears when he starts and stops talking, so the mic types live and sends by itself.
+$vad = Join-Path $ac "models\silero-vad"
+New-Item -ItemType Directory -Force $vad | Out-Null
+Get-File "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx" (Join-Path $vad "silero_vad.onnx")
 
 if ($Expressive) {
   Write-Host "2b/3 VoxCPM2 (q8_0, 2.96 GB) for expressive voice"
