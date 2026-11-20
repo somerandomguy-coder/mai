@@ -7,6 +7,8 @@ const bubbleMeta = $("bubble-meta");
 const logEl = $("log");
 const logLines = $("log-lines");
 const activity = $("activity");
+const activityIcon = $("activity-icon");
+const activityText = $("activity-text");
 const badge = $("mood-badge");
 const hearts = $("hearts");
 
@@ -15,13 +17,25 @@ const TOOL_LABEL = {
   remember: "noting that down", edit_persona: "rewriting herself", read_persona_file: "checking her notes",
   calendar_add: "writing in the calendar", calendar_list: "checking the calendar", calendar_remove: "crossing it out",
   quest_give: "inventing a quest", quest_check: "inspecting your work", quest_resolve: "judging you",
-  look_at_screen: "peeking at your screen 👀", system_info: "checking your PC", recommend_models: "consulting the cookbook",
+  look_at_screen: "peeking at you", system_info: "checking your PC", recommend_models: "consulting the cookbook",
   list_folder: "digging through folders", move_file: "moving files", open: "opening it",
   todo_add: "writing your todo", todo_list: "checking your todos", todo_complete: "ticking it off", todo_remove: "crossing it out",
-  adjust_needs: "having feelings", run_powershell: "running a command", read_file: "reading your file 📄",
-  folder_tree: "looking around the folder", find_files: "looking for files 🔎", search_files: "searching inside files 🔎",
-  edit_file: "editing a file ✏️", insert_text: "adding lines ✏️", write_file: "writing a file ✏️",
-  start_long_task: "asking to work on it", task_progress: "ticking off a step",
+  adjust_needs: "having feelings", run_powershell: "running a command", read_file: "reading your file",
+  folder_tree: "looking around the folder", find_files: "looking for files", search_files: "searching in files",
+  edit_file: "editing a file", insert_text: "adding lines", write_file: "writing a file",
+  start_long_task: "asking to work on it", task_progress: "ticking off a step", read_screen: "reading text",
+};
+/** Icon + animation for the thought bubble over her head. "peek" = looking at his screen, "scan" = reading text off it. */
+const TOOL_LOOK = {
+  look_at_screen: ["👀", "peek"], read_screen: ["📄", "scan"],
+  read_file: ["📄", "scan"], read_persona_file: ["📓", "tool"],
+  list_folder: ["📂", "tool"], folder_tree: ["📂", "tool"], find_files: ["🔎", "tool"], search_files: ["🔎", "tool"],
+  edit_file: ["✏️", "tool"], insert_text: ["✏️", "tool"], write_file: ["✏️", "tool"], move_file: ["📦", "tool"],
+  remember: ["📝", "tool"], edit_persona: ["📝", "tool"], todo_add: ["📝", "tool"], todo_list: ["📋", "tool"],
+  todo_complete: ["✅", "tool"], todo_remove: ["✖️", "tool"],
+  calendar_add: ["📅", "tool"], calendar_list: ["📅", "tool"], calendar_remove: ["📅", "tool"],
+  system_info: ["🖥️", "tool"], recommend_models: ["📖", "tool"], run_powershell: ["⌨️", "tool"], open: ["🚀", "tool"],
+  quest_give: ["🎯", "tool"], quest_check: ["🧐", "tool"], quest_resolve: ["⚖️", "tool"],
 };
 
 let sprite = null;
@@ -138,6 +152,39 @@ function setHearts(affection) {
   hearts.title = `affection ${Math.round(affection)}/100`;
 }
 
+// ---------- the thought bubble over her head ----------
+let thinkTimer = null;
+function hideActivity() {
+  clearInterval(thinkTimer);
+  activity.classList.add("hidden");
+}
+function showThinking() {
+  clearInterval(thinkTimer);
+  activity.className = "thinking";
+  activityIcon.textContent = "💭";
+  activityText.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+  // A long think looks like a freeze; show that she's still on it.
+  const started = Date.now();
+  thinkTimer = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    if (s >= 4) activityText.innerHTML = `thinking ${s}s <span class="dots"><i></i><i></i><i></i></span>`;
+  }, 1000);
+}
+function showTool(name, text) {
+  clearInterval(thinkTimer);
+  const [icon, look] = TOOL_LOOK[name] || ["🛠️", "tool"];
+  activity.className = look;
+  activityIcon.textContent = icon;
+  activityText.textContent = text || TOOL_LABEL[name] || name.replace(/_/g, " ");
+  // A screenshot is being taken right now: a quick camera flash so he knows she looked.
+  if (name === "look_at_screen" || name === "read_screen") {
+    const sh = $("shutter");
+    sh.classList.remove("flash");
+    void sh.offsetWidth; // restart the animation
+    sh.classList.add("flash");
+  }
+}
+
 // ---------- brain events ----------
 let streamingText = "";
 window.mai.onEvent((e) => {
@@ -146,17 +193,17 @@ window.mai.onEvent((e) => {
       if (e.state === "loading") { setLoading(true); break; }
       if (loading && e.state === "idle") setLoading(false);
       activityState = e.state;
-      if (e.state === "thinking") { streamingText = ""; activity.textContent = "…"; activity.classList.remove("hidden"); }
-      if (e.state === "idle") activity.classList.add("hidden");
+      if (e.state === "thinking") { streamingText = ""; showThinking(); }
+      if (e.state === "idle") hideActivity();
       refresh();
       break;
     case "delta":
-      activity.classList.add("hidden");
+      hideActivity();
       streamingText += e.text;
       showBubble(streamingText, { streaming: true });
       break;
     case "say":
-      activity.classList.add("hidden");
+      hideActivity();
       // She has something to say: come back from the floating head and show it.
       if ($("talk").dataset.panel) $("talk").dataset.panel = "";
       showBubble(e.text, { proactive: e.proactive, meta: e.proactive ? "she said this on her own" : "" });
@@ -180,10 +227,12 @@ window.mai.onEvent((e) => {
     case "tool":
       if (e.phase === "start") {
         toolName = e.name;
-        activity.textContent = TOOL_LABEL[e.name] || e.name;
-        activity.classList.remove("hidden");
+        showTool(e.name);
       } else if (e.isError) {
-        activity.textContent = `${TOOL_LABEL[e.name] || e.name} — oops, retrying`;
+        showTool(e.name, `${TOOL_LABEL[e.name] || e.name}: oops, retrying`);
+      } else {
+        // Tool done; she goes back to thinking about what she found.
+        showThinking();
       }
       refresh();
       break;
@@ -396,12 +445,14 @@ window.mai.onPose(applyPose);
 function setLoading(on) {
   loading = on;
   if (on) {
-    activity.textContent = "waking up… 🥱";
-    activity.classList.remove("hidden");
+    clearInterval(thinkTimer);
+    activity.className = "tool";
+    activityIcon.textContent = "🥱";
+    activityText.textContent = "waking up…";
     badge.textContent = "💤";
     badge.classList.add("show");
   } else {
-    activity.classList.add("hidden");
+    hideActivity();
     badge.classList.toggle("show", !!MOOD_BADGE[mood]);
     badge.textContent = MOOD_BADGE[mood] || "";
   }
@@ -460,14 +511,16 @@ function stopMicAudio(l) {
   if (l.ctx) l.ctx.close().catch(() => {});
 }
 
-async function startLive() {
-  const l = { id: 0, base: sayBox.value.trim(), stream: null, ctx: null, heard: false };
+/** mode.fromEar: hands-free, the audio comes from the always-open "ear" mic (see "Mai ơi" below). */
+async function startLive(mode = {}) {
+  const l = { id: 0, base: mode.fromEar ? "" : sayBox.value.trim(), stream: null, ctx: null, heard: false, fromEar: !!mode.fromEar };
   live = l;
   updateMicUi("listening");
   try {
     // Start the listener first (it loads the VAD), so no audio is dropped.
-    l.id = await window.mai.liveStart({ lang: micLang === "vi-VN" ? "vi" : "en" });
+    l.id = await window.mai.liveStart({ lang: micLang === "vi-VN" ? "vi" : "en", fromEar: l.fromEar, noSpeechMs: mode.noSpeechMs });
     if (live !== l) return window.mai.liveStop("cancel");
+    if (l.fromEar) return;
     const savedId = localStorage.getItem("mai_mic_device_id") || "";
     const opts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
     l.stream = await navigator.mediaDevices.getUserMedia({ audio: savedId ? { ...opts, deviceId: { exact: savedId } } : opts });
@@ -498,6 +551,7 @@ function stopLive(how) {
   if (how === "cancel") {
     sayBox.value = live.base;
     growInput();
+    if (live.fromEar) endConversation();
   }
   window.mai.liveStop(how);
   if (how === "cancel" || !live.id) endLive();
@@ -524,6 +578,7 @@ window.mai.onLive((ev) => {
     case "final":
       showLiveText(ev.text);
       endLive();
+      if (l.fromEar) onHandsFreeSent(ev.text);
       if (ev.autoSend) $("say-form").requestSubmit();
       else sayBox.focus();
       break;
@@ -531,12 +586,15 @@ window.mai.onLive((ev) => {
       sayBox.value = l.base;
       growInput();
       endLive();
-      showBubble("🎙️ I didn't catch anything. Click the mic and talk; it sends when you stop.", { meta: "voice input" });
+      // Hands-free: silence just means the conversation is over; she goes back to waiting for "Mai ơi".
+      if (l.fromEar) endConversation();
+      else showBubble("🎙️ I didn't catch anything. Click the mic and talk; it sends when you stop.", { meta: "voice input" });
       break;
     case "error":
       sayBox.value = l.base;
       growInput();
       endLive();
+      if (l.fromEar) endConversation();
       showBubble("🎙️ " + String(ev.message || "").replace(/^.*Error: /, ""), { meta: "voice input" });
       break;
     case "end":
@@ -567,6 +625,131 @@ sayBox.addEventListener("input", () => {
   window.mai.liveStop("cancel");
   endLive();
 });
+
+// ---------- "Mai ơi": wake word + hands-free conversation ----------
+// With Settings → Mic → wake word on (and his voice enrolled), one mic stays open and streams to the main
+// process, where only a small local detector listens (src/core/wake.ts). "Mai ơi" → a chime, she listens, his
+// sentence sends itself when he pauses. After she answers, the mic opens again for mic.followUpSec seconds
+// so he can just keep talking. Silence (or "thôi / bye") ends the conversation. The ear is muted while she
+// speaks, so she never hears herself.
+let ear = null; // { stream, ctx }
+let convo = null; // { awaitingReply, drained, ending }
+let speechQuietUntil = 0;
+let followUpSec = 8;
+
+function earMuted() {
+  return speaking || Date.now() < speechQuietUntil || (live && !live.fromEar);
+}
+
+async function startEar() {
+  if (ear) return;
+  const e = { stream: null, ctx: null };
+  ear = e;
+  try {
+    const savedId = localStorage.getItem("mai_mic_device_id") || "";
+    const opts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    e.stream = await navigator.mediaDevices.getUserMedia({ audio: savedId ? { ...opts, deviceId: { exact: savedId } } : opts });
+    try {
+      e.ctx = new AudioContext({ sampleRate: 16000 });
+    } catch {
+      e.ctx = new AudioContext();
+    }
+    await e.ctx.audioWorklet.addModule("mic-worklet.js");
+    const tap = new AudioWorkletNode(e.ctx, "mic-tap", { numberOfInputs: 1, numberOfOutputs: 0 });
+    tap.port.onmessage = (m) => { if (ear === e && !earMuted()) window.mai.wakeAudio(new Uint8Array(m.data)); };
+    e.ctx.createMediaStreamSource(e.stream).connect(tap);
+    btnMic?.classList.add("ear");
+    if (btnMic) btnMic.title = "Say “Mai ơi” to talk to her hands-free · click to dictate · right-click: switch language";
+  } catch (err) {
+    if (ear === e) ear = null;
+    stopMicAudio(e);
+    showBubble("👂 Couldn't open the mic for “Mai ơi”: " + String(err.message || err), { meta: "wake word" });
+  }
+}
+
+/** Two soft rising notes: she heard her name. */
+function chime() {
+  try {
+    const ctx = new AudioContext();
+    const t = ctx.currentTime;
+    [[660, 0], [880, 0.11]].forEach(([f, at]) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + at);
+      g.gain.exponentialRampToValueAtTime(0.18, t + at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.16);
+      o.connect(g).connect(ctx.destination);
+      o.start(t + at);
+      o.stop(t + at + 0.18);
+    });
+    setTimeout(() => ctx.close().catch(() => {}), 600);
+  } catch {}
+}
+
+function listenHandsFree(noSpeechMs) {
+  if (live) return;
+  clearInterval(thinkTimer);
+  activity.className = "peek";
+  activityIcon.textContent = "👂";
+  activityText.textContent = noSpeechMs ? "listening…" : "dạ?";
+  void startLive({ fromEar: true, noSpeechMs });
+}
+
+window.mai.onWake(() => {
+  if (live) return; // already listening
+  stopSpeech();
+  chime();
+  setPanel(null);
+  convo = { awaitingReply: false, drained: false, ending: false };
+  listenHandsFree();
+});
+
+const BYE = /^(thôi|thôi nhé|thôi nha|tạm biệt|bye|bai|ngủ đi|ngủ ngon|good ?night|that'?s all|okay bye|ok bye)[\s.!…]*$/i;
+function onHandsFreeSent(text) {
+  if (!convo) convo = { awaitingReply: false, drained: false, ending: false };
+  convo.awaitingReply = true;
+  convo.drained = false;
+  convo.ending = BYE.test(text.trim()); // she still answers, but the mic doesn't reopen
+}
+
+function endConversation() {
+  convo = null;
+  hideActivity();
+}
+
+/** After her answer has been fully spoken, open the mic again for his next sentence. */
+/** Her voice is queued, loading or playing ("play" fires a moment after play(), so check the element too). */
+function voiceBusy() {
+  return speaking || speechQueue.length > 0 || (!audio.paused && !audio.ended);
+}
+function maybeFollowUp() {
+  if (!convo || !convo.awaitingReply || !convo.drained || voiceBusy() || live) return;
+  convo.awaitingReply = false;
+  if (convo.ending || !followUpSec) return endConversation();
+  speechQuietUntil = Date.now() + 500; // let the room go quiet after her last word
+  setTimeout(() => {
+    if (!convo || live) return;
+    if (voiceBusy()) { convo.awaitingReply = true; return; } // more of her voice arrived: wait for it to end
+    listenHandsFree(followUpSec * 1000);
+  }, 500);
+}
+window.mai.onSpeechDrained(() => {
+  if (convo) convo.drained = true;
+  maybeFollowUp();
+});
+audio.addEventListener("ended", () => { speechQuietUntil = Date.now() + 600; setTimeout(maybeFollowUp, 0); });
+
+(async () => {
+  try {
+    const st = await window.mai.wakeStatus();
+    const cfg = await window.mai.getConfig?.();
+    if (cfg?.mic?.followUpSec != null) followUpSec = Math.max(0, Number(cfg.mic.followUpSec) || 0);
+    if (st.ready) await startEar();
+    else if (st.on && !st.enrolled) showBubble("👂 “Mai ơi” is on, but she hasn't learned your voice yet: Settings → Mic → Teach her “Mai ơi”.", { meta: "wake word" });
+  } catch {}
+})();
 
 // ---------- click-through: empty, transparent parts of the window don't block the desktop ----------
 let clickThrough = null;

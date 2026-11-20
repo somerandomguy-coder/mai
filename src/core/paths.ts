@@ -17,6 +17,8 @@ export const paths = {
 	sessions: join(DATA_DIR, "sessions"),
 	sprites: join(DATA_DIR, "sprites"),
 	screenshots: join(DATA_DIR, "state", "screens"),
+	/** His "Mai ơi" enrollment: wake.json (the detector) and the takes it was built from. */
+	wake: join(DATA_DIR, "state", "wake"),
 	pi: join(DATA_DIR, "pi"),
 	personaTemplate: join(APP_ROOT, "persona-template"),
 	bundledSprites: join(APP_ROOT, "sprites"),
@@ -24,7 +26,7 @@ export const paths = {
 };
 
 export function ensureDirs(): void {
-	for (const p of [paths.data, paths.persona, paths.state, paths.sessions, paths.sprites, paths.screenshots, paths.pi]) {
+	for (const p of [paths.data, paths.persona, paths.state, paths.sessions, paths.sprites, paths.screenshots, paths.wake, paths.pi]) {
 		mkdirSync(p, { recursive: true });
 	}
 }

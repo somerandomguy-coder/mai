@@ -50,12 +50,16 @@ changes, and explain what you changed in plain words.
 
 ```powershell
 npx tsc --noEmit -p .
-npx tsx scripts/repair-test.ts; npx tsx scripts/shell-test.ts; npx tsx scripts/markdown-test.ts; npx tsx scripts/needs-test.ts; npx tsx scripts/files-test.ts; npx tsx scripts/fsops-test.ts; npx tsx scripts/task-test.ts; npx tsx scripts/livestt-test.ts
+npx tsx scripts/repair-test.ts; npx tsx scripts/budget-test.ts; npx tsx scripts/shell-test.ts; npx tsx scripts/markdown-test.ts; npx tsx scripts/needs-test.ts; npx tsx scripts/files-test.ts; npx tsx scripts/fsops-test.ts; npx tsx scripts/task-test.ts; npx tsx scripts/livestt-test.ts
 $env:MAI_HOME="$env:TEMP\mai-work"; npx tsx scripts/work-e2e.ts   # after changes to file tools or work mode
 node scripts/check-sprites.mjs <sprite folder>          # after sprite changes
 node --check src/app/renderer/pet.js                    # after renderer JS changes
 npx tsx scripts/bench/stt-live-bench.ts <clips> mai     # after mic changes (needs the voice server); see docs/BENCHMARKS.md
 $env:MAI_HOME="$env:TEMP\mai-e2e"; npx tsx scripts/e2e.ts   # after brain/prompt/tool changes (needs Ollama running)
+$env:MAI_HOME="$env:TEMP\mai-long"; npx tsx scripts/longchat-e2e.ts   # after prompt/context/compaction changes: long chats must never go silent
+$env:MAI_HOME="$env:TEMP\mai-screen"; npx tsx scripts/screen-e2e.ts   # after screen/OCR changes (covers the screen with a test page)
+npx tsx scripts/wake-test.ts [<clips dir> [--asr]]       # after "Mai ơi" changes; clips layout in the script header
+npx electron scripts/wake-e2e.mjs <enroll dir> <question.wav>   # wake + hands-free in the real pet window (npm run build first)
 npx tsx scripts/bench/judge-bench.ts so/tev1:4b-q4_K_M      # after goal-check changes; see docs/BENCHMARKS.md
 ```
 

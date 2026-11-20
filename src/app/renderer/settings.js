@@ -122,7 +122,8 @@ const FIELDS = [
   ]],
   ["Eyes", [
     ["screen.watchWindows", "Notice which app is open", "bool"],
-    ["screen.allowScreenshots", "Allow screen peeks (local vision model)", "bool"],
+    ["screen.allowScreenshots", "Let her look at the screen without asking (off = she asks you each time)", "bool"],
+    ["screen.ocrModel", "Model that reads text on screen (empty = her own model)", "text"],
     ["screen.blocklist", "Never look at (one per line)", "lines"],
   ]],
   ["Voice", [
@@ -141,6 +142,8 @@ const FIELDS = [
   ["Mic", [
     ["mic.autoSend", "Send by itself when I stop talking", "bool"],
     ["mic.pauseMs", "Pause before sending (ms, e.g. 900)", "number"],
+    ["mic.wakeWord", "“Mai ơi” wakes her, hands-free (teach her your voice first, above)", "bool"],
+    ["mic.followUpSec", "After she answers, keep listening for (seconds, 0 = off)", "number"],
   ]],
   ["Hands", [
     ["quests.enabled", "Side quests", "bool"],
@@ -328,6 +331,85 @@ async function startMicTest() {
     alert("Could not access microphone: " + err.message);
   }
 }
+
+// ---------- "Mai ơi": record his takes and build the wake-word detector ----------
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Open the chosen mic as 16 kHz mono 16-bit chunks (same pipeline as the pet's mic). */
+async function openMic16k() {
+  const savedId = (micSelect && micSelect.value) || localStorage.getItem("mai_mic_device_id") || "";
+  const opts = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: savedId ? { ...opts, deviceId: { exact: savedId } } : opts });
+  let ctx;
+  try {
+    ctx = new AudioContext({ sampleRate: 16000 });
+  } catch {
+    ctx = new AudioContext();
+  }
+  await ctx.audioWorklet.addModule("mic-worklet.js");
+  const tap = new AudioWorkletNode(ctx, "mic-tap", { numberOfInputs: 1, numberOfOutputs: 0 });
+  const mic = { chunks: null, close: () => { stream.getTracks().forEach((t) => t.stop()); ctx.close().catch(() => {}); } };
+  tap.port.onmessage = (e) => { if (mic.chunks) mic.chunks.push(new Int16Array(e.data)); };
+  ctx.createMediaStreamSource(stream).connect(tap);
+  return mic;
+}
+async function record(mic, ms) {
+  mic.chunks = [];
+  await wait(ms);
+  const parts = mic.chunks;
+  mic.chunks = null;
+  const out = new Int16Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+const loudness = (pcm) => { let m = 0; for (let i = 0; i < pcm.length; i++) m = Math.max(m, Math.abs(pcm[i])); return m / 32768; };
+
+async function refreshWakeStatus() {
+  const st = await window.mai.wakeStatus().catch(() => null);
+  if (!st) return;
+  $("wake-status").textContent = !st.installed
+    ? "The wake-word models aren't installed: run setup.cmd once."
+    : st.ready ? "✓ Learned your voice, and listening for “Mai ơi”." : st.enrolled ? "✓ Learned your voice. Tick “Mai ơi” wakes her below and Save." : "Not taught yet.";
+}
+
+$("btn-wake-teach")?.addEventListener("click", async () => {
+  const btn = $("btn-wake-teach");
+  const prompt = $("wake-prompt");
+  btn.disabled = true;
+  stopMicTest();
+  let mic;
+  try {
+    mic = await openMic16k();
+    prompt.style.display = "block";
+    const takes = [];
+    for (let i = 1; takes.length < 5 && i <= 8; i++) {
+      prompt.textContent = `Get ready… (${takes.length + 1}/5)`;
+      await wait(900);
+      prompt.textContent = `🔴 Say “Mai ơi” now (${takes.length + 1}/5)`;
+      const pcm = await record(mic, 2200);
+      if (loudness(pcm) < 0.04) {
+        prompt.textContent = "That was too quiet. Once more, a bit louder or closer.";
+        await wait(1300);
+        continue;
+      }
+      takes.push(new Uint8Array(pcm.buffer));
+    }
+    if (takes.length < 3) throw new Error("I couldn't hear you clearly. Check the mic above (Test Mic) and try again.");
+    prompt.textContent = "Great! Now say anything else, like you're talking to a friend (6 s)… 🔴";
+    const other = new Uint8Array((await record(mic, 6000)).buffer);
+    prompt.textContent = "Learning your voice…";
+    const r = await window.mai.wakeEnroll(takes, [other]);
+    prompt.textContent = `✓ Done. Your takes matched each other at ${Math.min(...r.takes).toFixed(2)}–${Math.max(...r.takes).toFixed(2)}, other speech at ${r.other.toFixed(2)}; she wakes above ${r.threshold.toFixed(2)}.`;
+  } catch (err) {
+    prompt.style.display = "block";
+    prompt.textContent = "⚠ " + String(err.message || err).replace(/^.*Error: /, "");
+  } finally {
+    mic?.close();
+    btn.disabled = false;
+    void refreshWakeStatus();
+  }
+});
+void refreshWakeStatus();
 
 if (btnTestMic) {
   btnTestMic.addEventListener("click", () => {

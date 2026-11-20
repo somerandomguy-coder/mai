@@ -57,6 +57,14 @@
           </div>
           <span id="mic-meter-pct" style="font-size: 12px; font-family: monospace; width: 36px; text-align: right; color: var(--muted);">0%</span>
         </div>
+        <div id="wake-box" style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line);">
+          <p class="hint" style="margin-bottom: 8px;"><b>“Mai ơi” wake word.</b> She learns how <i>you</i> say it: 5 takes of “Mai ơi”, then a few seconds of you talking normally. Everything stays on this PC. Then tick <i>“Mai ơi” wakes her</i> below and Save.</p>
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <button id="btn-wake-teach" type="button">Teach her “Mai ơi” 👂</button>
+            <span id="wake-status" class="hint" style="margin: 0;"></span>
+          </div>
+          <div id="wake-prompt" style="display: none; margin-top: 10px; font-size: 18px; font-weight: 600; color: var(--ink);"></div>
+        </div>
       </div>
       <form id="config-form"></form>
       <div class="row"><button id="config-save" class="primary">Save settings</button><span id="config-status" class="status"></span></div>

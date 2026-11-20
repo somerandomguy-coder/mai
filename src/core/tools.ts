@@ -20,7 +20,7 @@ import { classify, runPowerShell } from "./shell.js";
 import { recommendModels, systemInfo } from "./system.js";
 
 export interface ApprovalRequest {
-	kind: "powershell" | "move_file" | "read_file" | "edit_file" | "long_task";
+	kind: "powershell" | "move_file" | "read_file" | "edit_file" | "long_task" | "screenshot";
 	/** One line, e.g. 'Move "cat.png" to Pictures'. */
 	summary: string;
 	/** Exact details he should check (command text, from/to paths). */
@@ -44,6 +44,8 @@ export interface Services {
 	screen: ScreenWatcher;
 	/** One-shot vision question to the local model. */
 	describeImage(base64Jpeg: string, question: string): Promise<string>;
+	/** Exact text on an image (OCR), with the model in `screen.ocrModel` (empty = her own). */
+	readImageText(base64: string): Promise<string>;
 	/** Called whenever persona files change, so the UI can refresh history. */
 	onPersonaChanged(): void;
 	/**
@@ -366,16 +368,50 @@ export function buildTools(s: Services): ToolDefinition<TSchema, unknown>[] {
 		},
 	});
 
+	/** Screenshots are allowed in settings, or he approves this one (only when he asked; see Brain.approve). */
+	const mayTakeScreenshot = async (summary: string, why: string): Promise<string | null> => {
+		if (s.cfg.screen.allowScreenshots) return null;
+		const yes = await s.approve({ kind: "screenshot", summary, detail: "One screenshot of your main screen. It's read by the local model on this PC and deleted right away.", why });
+		return yes
+			? null
+			: "No screenshot: screen peeks are off in his settings, so you can only look when he asks and approves it (he said no, or he isn't the one asking right now). Don't try again unless he asks; you can still use the window title.";
+	};
+
 	const lookAtScreen = defineTool({
 		name: "look_at_screen",
 		label: "Look at screen",
-		description: "Take a quick look at his screen (only if he allowed it) and get a short description of what he's doing.",
-		parameters: Type.Object({ question: Type.Optional(Type.String({ description: "What you want to know, e.g. 'is he working or watching videos?'" })) }),
+		description:
+			"Take a quick look at his screen and get a short description of what he's doing. Asks him first unless he turned on screen peeks. To read text on the screen exactly, use read_screen instead.",
+		parameters: Type.Object({
+			question: Type.Optional(Type.String({ description: "What you want to know, e.g. 'is he working or watching videos?'" })),
+			why: Type.Optional(Type.String({ description: "Your reason, shown to him if you need to ask (his language, your voice)" })),
+		}),
 		async execute(_id, p) {
+			const denied = await mayTakeScreenshot("Take a quick look at your screen", p.why ?? "Can I peek at what you're doing?");
+			if (denied) return ok(`${denied} Current window: ${s.screen.describe()}`);
 			const shot = await s.screen.screenshot();
 			if (!shot.ok) return ok(`Can't look: ${shot.error} Current window: ${s.screen.describe()}`);
 			const desc = await s.describeImage(shot.base64, p.question ?? "Briefly describe what the user is doing on this screen.");
 			return ok(`What you see: ${desc}`);
+		},
+	});
+
+	const readScreen = defineTool({
+		name: "read_screen",
+		label: "Read screen (OCR)",
+		description:
+			"Take a screenshot of his screen and read the exact text on it (OCR): notes, a task list, an error message, code, a chat, a web page. Use when he asks you to read, check or use text that's on his screen. Asks him first unless he turned on screen peeks. Returns the text; then answer what he asked. OCR can misread a letter or a Vietnamese tone mark, so quote carefully.",
+		parameters: Type.Object({
+			why: Type.Optional(Type.String({ description: "Your reason, shown to him if you need to ask (his language, your voice)" })),
+		}),
+		async execute(_id, p) {
+			const denied = await mayTakeScreenshot("Read the text on your screen", p.why ?? "Let me read what's on your screen.");
+			if (denied) return ok(denied);
+			const shot = await s.screen.screenshot({ forText: true });
+			if (!shot.ok) return ok(`Can't read the screen: ${shot.error}`);
+			const text = await s.readImageText(shot.base64);
+			const where = s.screen.current ? ` (window in front: ${s.screen.current.process} "${s.screen.current.title.slice(0, 80)}")` : "";
+			return ok(text ? `Text on his screen${where}:\n\n${text}` : `No readable text on his screen${where}.`);
 		},
 	});
 
@@ -713,6 +749,7 @@ ${r.output}`);
 		questCheck,
 		questResolve,
 		lookAtScreen,
+		readScreen,
 		sysInfo,
 		recommend,
 		listFolder,

@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="pet.css">
 </head>
 <body>
+  <!-- Camera-shutter flash: she just took a screenshot. -->
+  <div id="shutter" aria-hidden="true"></div>
   <main id="stage">
     <section id="talk">
       <div id="bubble" class="hidden" aria-live="polite">
@@ -35,10 +37,11 @@
         <div id="task-progress"><i></i></div>
         <button id="btn-stop-task" type="button" title="Stop this task (her progress notes are kept)">⏹</button>
       </div>
-      <div id="activity" class="hidden"></div>
     </section>
 
     <section id="body">
+      <!-- What she's doing right now (thinking, looking at the screen, reading a file…). Lives on her body so it shows in roam mode too. -->
+      <div id="activity" class="hidden" aria-live="polite"><span id="activity-icon"></span><span id="activity-text"></span></div>
       <div id="mood-badge" title="mood"></div>
       <img id="avatar" alt="Mai" draggable="false">
       <div id="hearts" aria-label="affection"></div>

@@ -93,9 +93,55 @@ blockquote { margin: 2px 0; padding-left: 8px; border-left: 3px solid var(--pink
 #btn-stop-task { min-width: 0; padding: 0 8px; font-size: 12px; }
 body.mode-roam #taskbar { display: none; }
 
+/* ---------- what she's doing: a little thought bubble over her head ---------- */
 #activity {
-  align-self: center; font-size: 12px; color: #fff; background: rgba(42, 31, 45, .75);
-  padding: 2px 10px; border-radius: 999px;
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 5px; max-width: 92%;
+  font-size: 12px; color: var(--ink); background: var(--paper);
+  border: 2px solid var(--ink); border-radius: 14px; padding: 2px 9px 2px 6px; box-shadow: var(--shadow);
+  white-space: nowrap; pointer-events: none;
+  animation: pop-in .18s ease-out;
+}
+#activity::after { /* the bubble's tail, pointing down at her */
+  content: ""; position: absolute; bottom: -7px; left: 50%; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--paper); border: 2px solid var(--ink); transform: translateX(-50%);
+}
+#activity-text { overflow: hidden; text-overflow: ellipsis; }
+#activity-icon { display: inline-block; font-size: 15px; line-height: 1; }
+@keyframes pop-in { from { opacity: 0; transform: translate(-50%, 6px) scale(.9); } }
+
+/* thinking: three dots that bounce in turn */
+#activity .dots { display: inline-flex; gap: 2px; }
+#activity .dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--pink-deep); animation: dot 1s infinite ease-in-out; }
+#activity .dots i:nth-child(2) { animation-delay: .15s; }
+#activity .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* looking at his screen: her eyes dart left and right, the bubble glows */
+#activity.peek { border-color: var(--pink-deep); animation: pop-in .18s ease-out, glow 1.6s ease-in-out infinite; }
+#activity.peek #activity-icon { animation: glance 1.4s ease-in-out infinite; }
+@keyframes glance { 0%, 100% { transform: translateX(-3px); } 45%, 55% { transform: translateX(3px); } }
+@keyframes glow { 50% { box-shadow: 0 0 0 3px rgba(255, 143, 184, .45), var(--shadow); } }
+
+/* reading text off the screen (OCR): a scan line sweeps down the page icon */
+#activity.scan #activity-icon { position: relative; overflow: hidden; }
+#activity.scan #activity-icon::before {
+  content: ""; position: absolute; left: 0; right: 0; height: 3px; top: 0;
+  background: linear-gradient(90deg, transparent, var(--pink-deep), transparent);
+  animation: scanline 1.1s linear infinite;
+}
+@keyframes scanline { from { top: 0; } to { top: 100%; } }
+
+/* working with files / tools: the icon bobs */
+#activity.tool #activity-icon { animation: bob .9s ease-in-out infinite; }
+
+/* camera shutter: a quick white flash over the whole window when she takes a screenshot */
+#shutter { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 50; border-radius: 18px; }
+#shutter.flash { animation: shutter .45s ease-out; }
+@keyframes shutter { 0% { opacity: 0; } 15% { opacity: .85; } 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  #activity, #activity *, #activity *::before, #shutter.flash { animation: none !important; }
 }
 
 #body { position: relative; display: flex; justify-content: center; height: 220px; flex-shrink: 0; }
@@ -125,6 +171,9 @@ body.mode-roam #taskbar { display: none; }
   animation: pulse-mic 1.2s infinite ease-in-out;
 }
 /* Mic open, waiting for him to talk (turns red once speech is heard). */
+/* "Mai ơi" is on: a small green dot on the mic (the ear is open, only the wake-word detector hears it). */
+#btn-mic.ear { position: relative; }
+#btn-mic.ear::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: #52c41a; }
 #btn-mic.listening { background: #ffe3ee; border-color: var(--pink-deep); animation: pulse-mic 2s infinite ease-in-out; }
 /* Words still firming up while he talks. */
 #say.live { color: #6b5560; font-style: italic; }

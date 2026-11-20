@@ -24,6 +24,7 @@ import { TodoList } from "./todos.js";
 import { TaskBoard } from "./longtask.js";
 import { QuestBook } from "./quests.js";
 import { extractCallsFromText, needleRepair, type ToolSpec, toToolCallBlock } from "./repair.js";
+import { readImageText } from "./ocr.js";
 import { ScreenWatcher } from "./screen.js";
 import { Sidecars } from "./sidecars.js";
 import { type ApprovalRequest, buildTools, type Services } from "./tools.js";
@@ -64,6 +65,26 @@ interface RunInfo {
 }
 
 const SILENT = /^\s*(\[[a-z]+\]\s*)?(SILENT|HEARTBEAT_OK)\W*$/i;
+
+/** Longest reply she may write in one go. */
+const REPLY_TOKENS = 2048;
+/** pi-ai holds back this many tokens of the model's context window when it sizes a reply (CONTEXT_SAFETY_TOKENS). */
+const SDK_SAFETY_TOKENS = 4096;
+
+/**
+ * How her context window (Ollama's num_ctx) is split.
+ * - The SDK sizes each reply as `window - prompt - 4096`. With a 16k window and her ~8k fixed prompt (rules,
+ *   persona, 31 tool descriptions), any chat over ~12k tokens got a 1-token reply cap: she went silent, and every
+ *   heartbeat came back empty. Ollama's window is exact, so we hand the SDK window + 4096 to cancel that margin.
+ * - Compaction (pi summarizes older turns) starts when the prompt passes `num_ctx - 3072`, so a full reply always
+ *   fits. It keeps the newest ~20% of the window verbatim.
+ */
+export function contextBudget(numCtx: number) {
+	return {
+		sdkContextWindow: numCtx + SDK_SAFETY_TOKENS,
+		compaction: { enabled: true, reserveTokens: SDK_SAFETY_TOKENS + REPLY_TOKENS + 1024, keepRecentTokens: Math.max(2000, Math.round(numCtx * 0.2)) },
+	};
+}
 /** Splits a leading [mood] tag off text; tolerant of a tag that's still streaming in. */
 export function splitMood(text: string): { mood?: Mood; body: string } {
 	// Gemma sometimes leaks a "thought" channel marker before the reply.
@@ -180,8 +201,11 @@ export class Brain extends EventEmitter {
 			screen: this.screen,
 			describeImage: (b64, q) =>
 				ollamaChat(self.cfg.ollama.baseUrl, self.cfg.ollama.model, [{ role: "user", content: `${q} Answer in 2 sentences.`, images: [b64] }]),
+			readImageText: (b64) => readImageText(self.cfg.ollama.baseUrl, self.cfg.screen.ocrModel || self.cfg.ollama.model, b64),
 			onPersonaChanged: () => this.emitEvent({ type: "persona_changed" }),
 			approve: async (req) => {
+				// She never pops up a screenshot request on her own (heartbeat); only when he's talking to her.
+				if (req.kind === "screenshot" && this.run?.kind !== "user") return false;
 				if (this.grants.has(req.kind)) return true;
 				const answer = await this.approver(req).catch(() => "deny" as const);
 				if (answer === "all") this.grants.add(req.kind);
@@ -227,8 +251,8 @@ export class Brain extends EventEmitter {
 							// burning the token budget and sometimes ending with no reply at all.
 							models: [o.model].map((id) => ({
 								id,
-								contextWindow: o.contextWindow,
-								maxTokens: 2048,
+								contextWindow: contextBudget(o.contextWindow).sdkContextWindow,
+								maxTokens: REPLY_TOKENS,
 								input: ["text", "image"],
 								samplingParams: o.think ? {} : { reasoning_effort: "none" },
 							})),
@@ -286,7 +310,7 @@ export class Brain extends EventEmitter {
 				customTools: this.customTools,
 				sessionManager: SessionManager.continueRecent(paths.data, paths.sessions),
 				settingsManager: SettingsManager.inMemory({
-					compaction: { enabled: true, reserveTokens: 4500, keepRecentTokens: 4000 },
+					compaction: contextBudget(this.cfg.ollama.contextWindow).compaction,
 					retry: { enabled: true, maxRetries: 4, baseDelayMs: 1500 },
 				}),
 			});
@@ -310,7 +334,7 @@ export class Brain extends EventEmitter {
 				customTools: this.customTools,
 				sessionManager: SessionManager.continueRecent(paths.data, paths.sessions),
 				settingsManager: SettingsManager.inMemory({
-					compaction: { enabled: true, reserveTokens: 4500, keepRecentTokens: 4000 },
+					compaction: contextBudget(this.cfg.ollama.contextWindow).compaction,
 					retry: { enabled: true, maxRetries: 4, baseDelayMs: 1500 },
 				}),
 			});

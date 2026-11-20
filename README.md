@@ -32,10 +32,10 @@ The setup is **incremental**: each step checks first and only does what's missin
 
    | VRAM | Brain | Voice |
    |---|---|---|
-   | 24 GB+ (`32gb`) | `gemma4:12b`, 32k context (longer memory for long tasks) | VieNeu on CUDA + **VoxCPM2 expressive voice** |
-   | 12–23 GB (`16gb`) | `gemma4:12b`, 16k context | VieNeu on CPU (keeps VRAM for the brain) |
-   | 7–11 GB (`8gb`) | `qwen3.5:9b` | VieNeu on CPU |
-   | less / no NVIDIA (`cpu`) | `qwen3.5:4b` (slow) | VieNeu on CPU |
+   | 24 GB+ (`32gb`) | `gemma4:12b`, 32k context | VieNeu on CUDA + **VoxCPM2 expressive voice** |
+   | 12–23 GB (`16gb`) | `gemma4:12b`, 32k context | VieNeu on CPU (keeps VRAM for the brain) |
+   | 7–11 GB (`8gb`) | `qwen3.5:9b`, 16k context | VieNeu on CPU |
+   | less / no NVIDIA (`cpu`) | `qwen3.5:4b` (slow), 12k context | VieNeu on CPU |
 
    12 GB+ also get `tev1:4b-q4_K_M` (3.9 GB), a decision model that checks every reply in ~80 ms
    ([benchmarks](docs/BENCHMARKS.md)).
@@ -107,15 +107,23 @@ Options: `setup.cmd -CheckOnly` (report only), `-Profile 16gb` (force a profile)
   - **Mic (🎙️):** live voice typing, fully offline. Click and talk; your words appear in the box as you speak
     (Qwen3-ASR + Silero VAD). The message sends itself when you stop for a moment. Click again to send now, Esc
     to cancel. Vietnamese first, English too: right-click the mic to switch.
+  - **"Mai ơi" (hands-free):**
+    1. Teach her your voice once: Settings → Mic → *Teach her "Mai ơi"*.
+    2. Tick *"Mai ơi" wakes her* and Save.
+    3. Say "Mai ơi" (or "Mai ơi, …" in one breath). She chimes, listens, and your sentence sends itself.
+    4. After she answers, just keep talking for a few seconds; silence or "thôi" ends it.
+
+    It's off by default. A small green dot on 🎙️ means the mic is open, but only a local detector hears it.
 - **Work mode for long jobs.** For big jobs ("read all 40 reports and summarize them"), she asks permission with a
   goal and step list. Once you approve, she keeps working step after step until it's done:
   - a progress bar with ⏹ to stop;
   - her notes survive a full context window and even a restart;
   - she pauses instead of spinning if she gets stuck.
-- **Tools.** 30 of them:
+- **Tools.** 31 of them:
   - memory and persona edits
   - calendar, todos and side quests (with automatic checks)
-  - screen peek with the local vision model (opt-in)
+  - looking at your screen, and reading the exact text on it (OCR), with the local model; she asks you first
+    unless you allow it in Settings → Eyes
   - system info and a "which model fits my GPU" cookbook
   - reading files (PDF, Word, Excel, PowerPoint, images, code…), by line range for text
   - exploring folders: tree, find by name, search inside files (skips `node_modules`, `.venv`, `.git`, build output)

@@ -31,8 +31,16 @@ export interface Config {
 	screen: {
 		/** Poll the foreground window title (cheap, local). */
 		watchWindows: boolean;
-		/** Allow occasional screenshots sent to the local vision model. */
+		/**
+		 * Allow screenshots sent to the local vision model without asking. When off, she can still look or read the
+		 * screen when he asks, after he approves that one screenshot (never on her own).
+		 */
 		allowScreenshots: boolean;
+		/**
+		 * Model that reads text off the screen (read_screen). Empty = her own model (gemma4 reads Vietnamese tones best
+		 * in our tests). Any Ollama vision/OCR tag works, e.g. a dedicated OCR model (see docs/BENCHMARKS.md).
+		 */
+		ocrModel: string;
 		/** Window titles/processes that are never looked at or mentioned. */
 		blocklist: string[];
 	};
@@ -69,6 +77,13 @@ export interface Config {
 		pauseMs: number;
 		/** false = put the words in the box and let him press Enter. */
 		autoSend: boolean;
+		/**
+		 * "Mai ơi" wakes her (needs enrolling his voice once in Settings → Mic). The mic stays open while she's
+		 * running; only a small local detector listens until he says it. Off by default.
+		 */
+		wakeWord: boolean;
+		/** After she answers, keep listening this long (seconds) for his next sentence without "Mai ơi". 0 = off. */
+		followUpSec: number;
 	};
 	repair: {
 		/** Use the needle sidecar when an LLM tool call can't be fixed with plain JSON repair. */
@@ -121,6 +136,7 @@ export const DEFAULT_CONFIG: Config = {
 	screen: {
 		watchWindows: true,
 		allowScreenshots: false,
+		ocrModel: "",
 		blocklist: ["1password", "bitwarden", "keepass", "bank", "inprivate", "incognito", "password", "windows security"],
 	},
 	quests: { enabled: true, maxActive: 2 },
@@ -133,7 +149,7 @@ export const DEFAULT_CONFIG: Config = {
 		voxcpm2: { voiceRef: "" },
 		openai: { baseUrl: "http://127.0.0.1:8080", model: "vieneu-tts", voice: "default" },
 	},
-	mic: { pauseMs: 900, autoSend: true },
+	mic: { pauseMs: 900, autoSend: true, wakeWord: false, followUpSec: 8 },
 	repair: { useNeedle: true, needlePort: 8765 },
 	agent: { maxAutoContinues: 3, longTask: { maxTurns: 150, maxMinutes: 90 } },
 	shell: { enabled: true, approval: "writes", timeoutSeconds: 60 },

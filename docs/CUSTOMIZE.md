@@ -78,8 +78,15 @@ Setup uses two Ollama models:
 - **Folders she may look in / move files in:** Settings → Hands → *Folders she may touch*. She reads files inside them freely; reading anything outside asks you first. Password stores, SSH keys and `.env` files are never opened.
 - **File moves and PowerShell changes** always ask you first; set *Ask before running* to `always` to be asked
   about read-only commands too, or switch PowerShell off.
-- **Screen:** *Notice which app is open* (window titles, local only) and *Allow screen peeks* (screenshot → local
-  vision model → deleted). *Never look at* lists window titles she ignores (banking, password managers…).
+- **Screen** (Settings → Eyes):
+  - *Notice which app is open*: she knows the title of the window in front (checked every 15 s, local only).
+    That's how she knows you're watching a Git video without any screenshot.
+  - Screenshots (a quick look, or reading the text on screen): when you ask, she asks you first, and each
+    screenshot goes to the local model and is deleted. She never asks on her own. *Let her look at the screen
+    without asking* skips the question.
+  - *Model that reads text on screen*: empty = her own model. Any Ollama vision/OCR tag works; see
+    [BENCHMARKS.md](BENCHMARKS.md#reading-the-screen-ocr).
+  - *Never look at* lists windows she never screenshots or mentions (banking, password managers…).
 
 ## Her needs and quests
 

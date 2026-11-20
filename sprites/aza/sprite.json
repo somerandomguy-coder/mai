@@ -101,6 +101,7 @@
     "insert_text": "write",
     "write_file": "write",
     "task_progress": "write",
-    "todo_add": "write"
+    "todo_add": "write",
+    "read_screen": "read"
   }
 }

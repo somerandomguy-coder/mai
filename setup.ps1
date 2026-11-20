@@ -228,10 +228,12 @@ $profiles = @{
 	# context for work mode and to the GPU voice (VieNeu on CUDA + VoxCPM2).
 	# judge: the goal-check decision model (3.9 GB VRAM, ~80 ms per check; scripts/bench/judge-bench.ts).
 	# Smaller cards have no room for it: empty means her own model judges, slower, on fewer replies.
+	# ctx: her fixed prompt (rules, persona, tool descriptions) is ~8k tokens, so the window has to be well above
+	# that (scripts/budget-test.ts). gemma4:12b keeps full history in only 8 of its layers: 16k -> 32k costs ~256 MB.
 	"32gb" = @{ main = @("gemma4:12b"); judge = "tev1:4b-q4_K_M"; ctx = 32768; voiceCuda = $true; expressive = $true }
-	"16gb" = @{ main = @("gemma4:12b"); judge = "tev1:4b-q4_K_M"; ctx = 16384; voiceCuda = $false }
-	"8gb"  = @{ main = @("qwen3.5:9b", "qwen3.5:4b"); judge = ""; ctx = 12288; voiceCuda = $false }
-	"cpu"  = @{ main = @("qwen3.5:4b"); judge = ""; ctx = 8192; voiceCuda = $false }
+	"16gb" = @{ main = @("gemma4:12b"); judge = "tev1:4b-q4_K_M"; ctx = 32768; voiceCuda = $false }
+	"8gb"  = @{ main = @("qwen3.5:9b", "qwen3.5:4b"); judge = ""; ctx = 16384; voiceCuda = $false }
+	"cpu"  = @{ main = @("qwen3.5:4b"); judge = ""; ctx = 12288; voiceCuda = $false }
 }
 $P = $profiles[$Profile]
 
@@ -388,6 +390,26 @@ if ($NoVoice) { Say "skip" "local voice (-NoVoice): she'll use the online edge v
 			if ((Get-FileHash "$vadFile.part" -Algorithm SHA256).Hash -ne $vadSha) { Remove-Item "$vadFile.part"; Fail "Silero VAD download is corrupt; run setup again" }
 			Move-Item -Force "$vadFile.part" $vadFile
 			Ok "Silero VAD installed"
+		}
+	}
+	# "Mai oi" wake word: openWakeWord's feature models (Apache-2.0, 2.4 MB, CPU). His voice is enrolled in Settings.
+	$owwDir = Join-Path $Root "sidecars\audiocpp\models\openwakeword"
+	$owwFiles = @(
+		@{ name = "melspectrogram.onnx"; sha = "BA2B0E0F8B7B875369A2C89CB13360FF53BAC436F2895CCED9F479FA65EB176F" },
+		@{ name = "embedding_model.onnx"; sha = "70D164290C1D095D1D4EE149BC5E00543250A7316B59F31D056CFF7BD3075C1F" }
+	)
+	$owwMissing = @($owwFiles | Where-Object { $f = Join-Path $owwDir $_.name; -not ((Test-Path $f) -and ((Get-FileHash $f -Algorithm SHA256).Hash -eq $_.sha)) })
+	if ($owwMissing.Count -eq 0) { Ok "wake word models (Mai oi)" } else {
+		Todo "wake word models for 'Mai oi' (2.4 MB)"
+		if (-not $CheckOnly) {
+			New-Item -ItemType Directory -Force $owwDir | Out-Null
+			foreach ($m in $owwMissing) {
+				$f = Join-Path $owwDir $m.name
+				Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/$($m.name)" -OutFile "$f.part"
+				if ((Get-FileHash "$f.part" -Algorithm SHA256).Hash -ne $m.sha) { Remove-Item "$f.part"; Fail "wake word model $($m.name) is corrupt; run setup again" }
+				Move-Item -Force "$f.part" $f
+			}
+			Ok "wake word models installed"
 		}
 	}
 }

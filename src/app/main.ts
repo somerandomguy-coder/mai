@@ -9,8 +9,7 @@ import { Heartbeat } from "../core/heartbeat.js";
 import { APP_ROOT, paths } from "../core/paths.js";
 import { PERSONA_FILES, type PersonaFile } from "../core/persona.js";
 import { vieneuVoices } from "../core/sidecars.js";
-import { LiveTranscriber } from "../core/livestt.js";
-import { assertAsrInstalled, transcribeAudio } from "../core/stt.js";
+import { type VoiceInput, wireVoiceInput } from "./voicein.js";
 import { Speaker } from "../core/tts.js";
 import { ROAM_SIZE, Roamer } from "./roam.js";
 
@@ -28,6 +27,7 @@ interface ChatLine {
 
 let pet: BrowserWindow | null = null;
 let roamer: Roamer | null = null;
+let voiceIn: VoiceInput | null = null;
 let settingsWin: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let muted = false;
@@ -212,6 +212,7 @@ function wireBrain(): void {
 			read_file: { what: "reading a file", all: "reads", note: "She'll see this file's content." },
 			edit_file: { what: "changing a file", all: "file changes", note: "The original is backed up first (data folder → state\\backups)." },
 			long_task: { what: "a longer task", note: "She'll keep working step by step until it's done (each file change still asks you). Stop her any time with ⏹." },
+			screenshot: { what: "a look at your screen", all: "screenshots", note: "Nothing leaves this PC. To let her look without asking: Settings → Eyes." },
 		};
 		const text = texts[req.kind];
 		// A long task is a yes/no question; the rest can be allowed for the whole request at once.
@@ -232,6 +233,9 @@ function wireBrain(): void {
 	brain.on("event", (e: BrainEvent) => {
 		pet?.webContents.send("brain-event", e);
 		if (e.type === "utterance") speak(e.text, e.mood);
+		// Turn over: tell the pet once every sentence of it has been voiced (or skipped), so hands-free mode
+		// knows when it can open the mic again without hearing her.
+		if (e.type === "state" && e.state === "idle") speechChain = speechChain.then(() => pet?.webContents.send("speech-drained"));
 		if (e.type === "say" && roamer?.mode === "roam") roamer.setMode("chat");
 		if (e.type === "say") {
 			logChat({ role: "mai", text: e.text, mood: e.mood, proactive: e.proactive, ts: Date.now() });
@@ -259,32 +263,16 @@ function registerIpc(): void {
 		settingsWin?.webContents.send("chat-cleared");
 		return { ok: true };
 	});
-	// Live voice typing: the pet streams 16 kHz mic audio, partial/final text comes back as "live-stt" events
-	// (errors too, which the pet shows in her bubble).
-	// Events carry the session id, so a late event from a cancelled session can't touch the next one.
-	let live: LiveTranscriber | undefined;
-	let liveId = 0;
-	ipcMain.handle("live-stt-start", async (_e, args: { lang?: "vi" | "en" | "auto" }) => {
-		const id = ++liveId;
-		live?.cancel();
-		assertAsrInstalled();
-		stopSpeech(); // he's talking now, and her voice would leak into the mic
-		const t: LiveTranscriber = new LiveTranscriber(
-			(wav) => transcribeAudio(wav, brain.cfg, { lang: args.lang ?? "vi" }),
-			(ev) => {
-				pet?.webContents.send("live-stt", { ...ev, id, ...(ev.type === "final" ? { autoSend: brain.cfg.mic.autoSend !== false } : {}) });
-				if (ev.type === "end" && live === t) live = undefined;
-			},
-			{ pauseMs: Math.max(300, Number(brain.cfg.mic.pauseMs) || 900) },
-		);
-		live = t;
-		await t.start();
-		return id;
+	// Mic input: live voice typing (🎙️) and the "Mai ơi" wake word (src/app/voicein.ts).
+	voiceIn = wireVoiceInput({
+		cfg: () => brain.cfg,
+		send: (channel, payload) => pet?.webContents.send(channel, payload),
+		stopSpeech,
+		onWake: () => {
+			if (roamer?.mode === "roam") roamer.setMode("chat");
+			pet?.showInactive();
+		},
 	});
-	ipcMain.on("live-stt-audio", (_e, pcm: Uint8Array) => {
-		live?.push(new Int16Array(pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + (pcm.byteLength & ~1))));
-	});
-	ipcMain.handle("live-stt-stop", (_e, how: "send" | "cancel") => (how === "cancel" ? live?.cancel() : live?.finish()));
 	ipcMain.handle("sprite", () => {
 		const dir = spriteDir(brain.cfg.spriteSet);
 		return { base: `${pathToFileURL(dir).href}/`, manifest: JSON.parse(readFileSync(join(dir, "sprite.json"), "utf8")) };
@@ -332,6 +320,7 @@ function registerIpc(): void {
 	ipcMain.handle("save-config", (_e, cfg: Config) => {
 		brain.saveConfig(cfg);
 		speaker = makeSpeaker(cfg);
+		voiceIn?.reloadEar();
 		pet?.reload();
 		return { ok: true, note: "Saved. Model, heartbeat-interval and voice-server (backend/threads) changes apply after restarting Mai." };
 	});

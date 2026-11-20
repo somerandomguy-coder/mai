@@ -3,7 +3,7 @@ export async function ollamaChat(
 	baseUrl: string,
 	model: string,
 	messages: Array<{ role: "system" | "user" | "assistant"; content: string; images?: string[] }>,
-	opts: { format?: "json" | object; timeoutMs?: number; numCtx?: number; numPredict?: number } = {},
+	opts: { format?: "json" | object; timeoutMs?: number; numCtx?: number; numPredict?: number; temperature?: number } = {},
 ): Promise<string> {
 	const res = await fetch(`${baseUrl}/api/chat`, {
 		method: "POST",
@@ -16,7 +16,7 @@ export async function ollamaChat(
 			format: opts.format,
 			// No num_ctx unless asked: a context size different from the one the model is loaded with makes
 			// Ollama reload the whole model, so side calls use the Modelfile's value like the chat does.
-			options: { temperature: 0.2, num_ctx: opts.numCtx, num_predict: opts.numPredict },
+			options: { temperature: opts.temperature ?? 0.2, num_ctx: opts.numCtx, num_predict: opts.numPredict },
 			keep_alive: "30m",
 		}),
 		signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),

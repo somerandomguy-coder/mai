@@ -22,8 +22,18 @@ window.mai = {
 	onEvent: (cb) => (handlers.event = cb),
 	onSpeech: () => {},
 	onSpeechStop: () => {},
+	onSpeechDrained: () => {},
 	onFocusInput: () => {},
 	onPose: (cb) => (handlers.pose = cb),
+	// live voice typing (pet.js subscribes at startup)
+	onLive: () => {},
+	liveStart: async () => ({ ok: false }),
+	liveAudio: () => {},
+	liveStop: async () => {},
+	wakeStatus: async () => ({ on: false, enrolled: false, installed: true, ready: false }),
+	wakeAudio: () => {},
+	wakeEnroll: async () => ({}),
+	onWake: () => {},
 	sprite: async () => ({ base: `${pathToFileURL(spriteDir).href}/`, manifest: JSON.parse(fs.readFileSync(path.join(spriteDir, "sprite.json"), "utf8")) }),
 	status: async () => ({ mood: { affection: 46 }, needs: { hunger: 78, energy: 72, social: 35, fun: 60, worry: 20 }, muted: false }),
 	history: async () => [
@@ -88,5 +98,9 @@ window.__demo = {
 	},
 	click(id) {
 		document.getElementById(id).click();
+	},
+	/** Any brain event, e.g. { type: "tool", name: "look_at_screen", phase: "start" }. */
+	event(e) {
+		handlers.event?.(e);
 	},
 };

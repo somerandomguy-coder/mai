@@ -126,3 +126,72 @@ npx electron scripts/live-mic-e2e.mjs <clip.wav> vi "expected text"             
   - **VRAM:** 1–3 GB next to gemma4:12b (~8.4 GB) and the voice.
   - **Silence:** it makes up text on silence, so it would need the same VAD anyway.
   - **Verdict:** Qwen3-ASR's 7–10% Vietnamese error leaves little room to win for that cost.
+
+## Reading the screen (OCR)
+
+Goal: when he says "read what's on my screen", `read_screen` gets the exact text (Vietnamese tones, code,
+commands), fast, without crowding gemma4 out of the 16 GB card. Measured on 2026-11-20 on the dev PC with
+Ollama 0.40.13, gemma4:12b loaded.
+
+- **Test screens:** four 1920×1080 renders with known text: a Vietnamese task list (Notepad), TypeScript with
+  Vietnamese comments (dark VS Code, 15 px Consolas), a PowerShell `git log`, and a Vietnamese YouTube page.
+- **Error:** character error rate against the text (spaces and Markdown ignored). Everything the models also
+  read (title bar, taskbar clock) counts as an error, so ~0.08–0.12 is the floor for a perfect read; read
+  the notes below rather than the decimals.
+- **Picking the model:** shortlisted from MDPBench (Mar 2026), which scores Vietnamese separately:
+  PaddleOCR-VL-1.5 78.9, GLM-OCR 69.2, DeepSeek-OCR 54.1.
+
+| Model | VRAM | Time per screen | Vietnamese tones | Code / terminal |
+|---|---|---|---|---|
+| **gemma4:12b** (her own model, the default) | 0 extra | ~4.5 s | right on all four screens | code exact; changed 2 characters in git hashes |
+| PaddleOCR-VL-1.5 (`hf.co/PaddlePaddle/PaddleOCR-VL-1.5-GGUF`) | +1.8 GB | ~1.3 s | ~6 slips per screen (tắt→tất, phỏng→phóng, Sáu→Sâu) | `Nam`→`Wam`, `--oneline`→`--online`, a hash in capitals |
+| GLM-OCR (`glm-ocr`) | +2 GB | ~1.8 s | unusable (`Cảm ơn`→`Cám ön`, `gửi lại`→`güì lái`) | perfect terminal, near-perfect code |
+
+- **What Mai uses:** her own model (`screen.ocrModel` empty), with a full-resolution PNG and a strict prompt:
+  copy character for character, expand and correct nothing. It's the only one that keeps Vietnamese right,
+  and it costs no download or VRAM. Its one habit to know: on one screen it read "từ con số 0" as "từ cơ sở",
+  even with the strict prompt.
+- **Strips don't help.** Cutting the screen into 2–4 overlapping strips gives each line more pixels, but the
+  overlaps repeat lines and the copies disagree. A whole screenshot is better.
+- **Switching models:** for mostly-English code and terminals, `glm-ocr` is the most exact and 2.5× faster.
+  Set it in Settings → Eyes → *Model that reads text on screen*. Dedicated OCR models get their own trigger
+  prompt (`OCR:`, `Text Recognition:`) in `src/core/ocr.ts`.
+- **End to end** (`scripts/screen-e2e.ts`, approval included): 8.7 s from his question to her answer, which
+  quoted the code `XK-4821` from the screen correctly.
+
+## "Mai ơi" wake word
+
+Goal: wake on his "Mai ơi" (alone, or starting a sentence), never on "ngày mai", "Mai à", "trời ơi", other people,
+or her own voice, cheaply enough to run all the time. Measured on 2026-11-20 on the dev PC (Ryzen 5 8500G).
+
+- **Test set:** synthetic, from VieNeu's preset voices.
+  - **4 male "users":** Northern, Central and Southern accents.
+  - **Each one:** 5 enrollment takes, 2 ordinary sentences for calibration, 5 held-out wake clips (3 of them
+    "Mai ơi, …" sentences) and 10 look-alikes: ngày mai, trời ơi, anh ơi, mai mốt, mãi mới, em ơi, hai ơi,
+    Mai à, mấy giờ rồi, a GitHub sentence.
+  - **Also scored:** other speakers' clips, and Mai's own voice saying sentences with "Mai" in them.
+- **Not tested:** real voices, room noise, a TV in the background. Enrolling his real voice is the real test.
+  `state\wake.log` in the data folder records every candidate with what speech recognition heard.
+
+| Stage | "Mai ơi" clips that woke her | Other clips that woke her |
+|---|---|---|
+| Detector only (his 5 takes, DTW on openWakeWord embeddings) | 20 / 20 | 12 / 92 (look-alikes in his own voice: "Mai à", "mãi mới", "hai ơi", "mai mốt") |
+| + strict check ("m…ai ơi" in the transcript) | 10 / 20 | 0 / 92 |
+| **+ lenient check (any "-ai/-ay + ơi"; what Mai uses)** | **18 / 20** | **1 / 92** ("hai ơi" heard as "ai ơi") |
+
+- **Streaming** (the real `WakeListener`, 58 s of mixed audio in 100 ms chunks): 2/2 wakes at the right
+  moment, 0 wrong. On "Mai ơi, mấy giờ rồi?" it fires after "Mai ơi", so the question still reaches her.
+- **Cost:** about 8% of one CPU core for the detector, which is ~1.3% of the 6-core CPU; less in a quiet room.
+  Speech recognition runs only on a hit.
+- **Why the strict check failed:** Qwen3-ASR wrote his "Mai ơi" as "Mày ơi", "AI ơi", "mai ổi", "tai ơi",
+  "bài ơi". The acoustic match already did the hard part, so the check only has to rule out the look-alikes.
+- **In the real pet window** (`wake-e2e.mjs`, fake mic): she woke 3.0 s after the clip started, "Mấy giờ rồi"
+  was sent 1.4 s later, her answer played to the end, the mic reopened 0.5 s after it, and 5 s of silence
+  ended the conversation.
+- **Ruled out:**
+  - **sherpa-onnx keyword spotting:** no Vietnamese model.
+  - **Porcupine:** no Vietnamese, and it needs an online key.
+  - **Re-running speech recognition on every utterance:** 1–2 s of CPU per sentence in the room, 1.5–3 s late,
+    and "ngày mai" is everywhere.
+  - **A trained openWakeWord model:** the next step, once his enrollment takes plus synthetic voices make a
+    training set ([STT-PLAN.md](STT-PLAN.md)).

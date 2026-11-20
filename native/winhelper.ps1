@@ -16,8 +16,12 @@ public static class MaiWin {
   public static string Title() { var h = GetForegroundWindow(); var sb = new StringBuilder(512); GetWindowText(h, sb, 512); return sb.ToString(); }
   public static uint Pid() { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return p; }
   public static uint IdleMs() { var l = new LASTINPUTINFO(); l.cbSize = (uint)Marshal.SizeOf(l); GetLastInputInfo(ref l); return (uint)Environment.TickCount - l.dwTime; }
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 }
 "@
+# Without this, on a scaled display (125%, 150%...) screen bounds are in scaled units and screenshots come out
+# cropped or blurry, which ruins reading small text.
+[void][MaiWin]::SetProcessDPIAware()
 
 function Out-Json($o) { [Console]::Out.WriteLine(($o | ConvertTo-Json -Compress -Depth 4)); [Console]::Out.Flush() }
 
@@ -42,7 +46,9 @@ while ($true) {
         $scale = [Math]::Min(1.0, $maxW / $b.Width)
         $w = [int]($b.Width * $scale); $h = [int]($b.Height * $scale)
         $small = New-Object System.Drawing.Bitmap $bmp, $w, $h
-        $small.Save($path, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+        # .png keeps small text sharp (for reading text); .jpg is smaller (for a quick look)
+        $fmt = if ($path.ToLower().EndsWith(".png")) { [System.Drawing.Imaging.ImageFormat]::Png } else { [System.Drawing.Imaging.ImageFormat]::Jpeg }
+        $small.Save($path, $fmt)
         $g.Dispose(); $bmp.Dispose(); $small.Dispose()
         Out-Json @{ ok = $true; path = $path; width = $w; height = $h }
       }

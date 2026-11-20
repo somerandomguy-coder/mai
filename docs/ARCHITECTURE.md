@@ -60,6 +60,33 @@
 5. **Why not native streaming:** audio.cpp's `/v1/audio/transcriptions/live` decodes fixed 2 s windows on their
    own and nearly doubled the error rate; numbers in [BENCHMARKS.md](BENCHMARKS.md).
 
+## "Mai ơi" and hands-free conversation
+
+Off by default (`mic.wakeWord`). The mic wiring for both features is in `src/app/voicein.ts`, shared with the tests.
+
+1. **Enroll once** (Settings → Mic → *Teach her "Mai ơi"*): 5 takes of the phrase and 6 s of ordinary speech.
+   - `wake.ts` turns each take into a short sequence of openWakeWord speech embeddings (96 numbers per 80 ms):
+     a template.
+   - The threshold sits between how well his takes match each other and how well his ordinary speech matches.
+   - The detector and the recordings go to `state\wake\` in his data folder.
+2. **The ear.** While she runs, the pet keeps one mic open and streams it to the main process (`wake-audio`).
+   - **What listens:** only the detector, comparing the newest embeddings with his templates (DTW + cosine),
+     about 8% of one CPU core.
+   - **Muted while she speaks:** the pet stops sending while her voice plays and for 0.6 s after, so she can't
+     wake herself.
+3. **A hit is double-checked.** Qwen3-ASR transcribes the last 2.5 s, which must contain an "-ai/-ay + ơi"
+   pair. This throws out "ngày mai", "Mai à", "trời ơi", "anh ơi", and anything else that only sounds close.
+4. **Awake:**
+   - **Wake:** a chime, and a 👂 "dạ?" bubble.
+   - **His question:** the same audio stream now feeds a live session, starting right after "Mai ơi". That way
+     "Mai ơi, mấy giờ rồi?" in one breath keeps the question. The phrase is stripped from the text, and the
+     message sends itself after the pause.
+5. **Follow-up.** When she goes idle, main sends `speech-drained` behind her last sentence. Once her voice has
+   finished playing, the mic reopens for `mic.followUpSec` (8 s) for his next sentence, with no "Mai ơi".
+   - **Silence:** ends the conversation.
+   - **"thôi" / "tạm biệt" / "bye":** she answers, and the mic doesn't reopen.
+   - **Esc:** cancels.
+
 ## Work mode (long tasks)
 
 1. **She asks.** `start_long_task` sends a goal and a step list to an approval dialog. On approval, `TaskBoard`
@@ -112,6 +139,8 @@
 
 | Command | What |
 |---|---|
+| `npx tsx scripts/budget-test.ts` | context budget vs the SDK's own math: full-size replies right up to compaction, for every profile's window |
+| `$env:MAI_HOME="$env:TEMP\mai-long"; npx tsx scripts/longchat-e2e.ts [num_ctx]` | real model: long pasted notes push the chat past 12k tokens, and replies and heartbeats still have text |
 | `npx tsx scripts/repair-test.ts` | tool-call repair, mood tags, sentence chunking |
 | `npx tsx scripts/shell-test.ts` | PowerShell safety classifier + runner |
 | `npx tsx scripts/markdown-test.ts` | bubble Markdown renderer (incl. XSS cases) |
@@ -119,6 +148,8 @@
 | `npx tsx scripts/fsops-test.ts` | find/search/tree, exact edits, insert by anchor, CRLF/BOM, backups |
 | `npx tsx scripts/task-test.ts` | work-mode task board: steps, notes, budget, restart |
 | `$env:MAI_HOME="$env:TEMP\mai-work"; npx tsx scripts/work-e2e.ts` | real model: explore, edit, and long tasks looped to completion |
+| `npx tsx scripts/wake-test.ts [<clips> [--asr]]` | "Mai ơi": phrase matching; with a clips folder, per-speaker enroll → wakes / false wakes, and a streaming run of the real listener |
+| `npx electron scripts/wake-e2e.mjs <enroll dir> <question.wav>` | the real pet window + `voicein.ts` with a fake mic: wake, the question sends itself, she answers, follow-up window, conversation ends |
 | `npx tsx scripts/livestt-test.ts` | live mic logic with the real Silero VAD: partials, one auto-send, short pauses, noise, stop/cancel |
 | `npx tsx scripts/stt-test.ts` | mic round trip VieNeu → Qwen3-ASR (needs Mai's voice server running) |
 | `npx electron scripts/live-mic-e2e.mjs <wav> vi` | the real pet window with a fake mic, live transcription, auto-send (needs the voice server + `npm run build`) |
@@ -126,4 +157,5 @@
 | `npx tsx scripts/files-test.ts [--vision]` | read_file across ~15 formats (+ real vision model) |
 | `node scripts/check-sprites.mjs [dir]` | sprite set validator |
 | `$env:MAI_HOME="$env:TEMP\mai-e2e"; npx tsx scripts/e2e.ts` | real-model scenarios (needs Ollama) |
+| `$env:MAI_HOME="$env:TEMP\mai-screen"; npx tsx scripts/screen-e2e.ts` | reading the screen: a full-screen test page (never his real screen), the approval, OCR, and no screenshot requests from heartbeats (needs Ollama) |
 | `npx tsc --noEmit -p .` | typecheck |

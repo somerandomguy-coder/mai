@@ -12,7 +12,7 @@ app.setName("mai-screenshots");
 // Each shot closes its window; don't let that end the run.
 app.on("window-all-closed", () => {});
 
-async function shot(name, page, size, script, bg = "#5d7290") {
+async function shot(name, page, size, script, extraWait = 0, bg = "#5d7290") {
 	const win = new BrowserWindow({
 		...size,
 		show: false,
@@ -31,7 +31,7 @@ async function shot(name, page, size, script, bg = "#5d7290") {
 	}
 	await wait(700);
 	if (script) await win.webContents.executeJavaScript(script);
-	await wait(1800);
+	await wait(1800 + extraWait);
 	fs.writeFileSync(path.join(out, `${name}.png`), (await win.capturePage()).toPNG());
 	console.log(`docs/images/${name}.png`);
 	win.destroy();
@@ -51,6 +51,12 @@ app.whenReady().then(async () => {
 	await shot("chat", "pet.html", { width: 400, height: 760 }, `__demo.pose({mode:"chat",behaviour:"idle",facing:"left"}); __demo.say(${JSON.stringify(reply)}, "stern")`);
 	await shot("planner", "pet.html", { width: 400, height: 760 }, `__demo.pose({mode:"chat",behaviour:"idle",facing:"left"}); __demo.click("btn-planner")`);
 	await shot("roam", "pet.html", { width: 170, height: 200 }, `__demo.pose({mode:"roam",behaviour:"walk",facing:"right"})`);
-	await shot("settings-history", "settings.html", { width: 980, height: 620 }, `document.querySelector('[data-tab=history]').click(); setTimeout(() => document.querySelector('#history-list li').click(), 300)`, "#ffffff");
+	// The thought bubble over her head: looking at his screen, reading text off it, and a long think.
+	const doing = (name, mode = "roam") => `__demo.pose({mode:"${mode}",behaviour:"idle",facing:"left"}); __demo.event({type:"state",state:"tool"}); __demo.event({type:"tool",name:"${name}",phase:"start"})`;
+	await shot("roam-peek", "pet.html", { width: 170, height: 200 }, doing("look_at_screen"));
+	await shot("roam-read-screen", "pet.html", { width: 170, height: 200 }, doing("read_screen"));
+	await shot("roam-thinking", "pet.html", { width: 170, height: 200 }, `__demo.pose({mode:"roam",behaviour:"idle",facing:"left"}); __demo.event({type:"state",state:"thinking"})`, 3000);
+	await shot("chat-peek", "pet.html", { width: 400, height: 520 }, doing("read_screen", "chat"));
+	await shot("settings-history", "settings.html", { width: 980, height: 620 }, `document.querySelector('[data-tab=history]').click(); setTimeout(() => document.querySelector('#history-list li').click(), 300)`, 0, "#ffffff");
 	app.quit();
 });

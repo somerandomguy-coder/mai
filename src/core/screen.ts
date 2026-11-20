@@ -27,22 +27,24 @@ export class ScreenWatcher {
 		return this.cfg.screen.blocklist.some((b) => t.includes(b.toLowerCase()));
 	}
 
+	/** Read the window in front right now. */
+	async refresh(): Promise<void> {
+		const r = await winHelper.send<{ ok: boolean; title: string; process: string; idleMs: number }>("poll");
+		if (!r.ok) return;
+		this.idleMs = r.idleMs;
+		const blocked = this.isBlocked(`${r.process} ${r.title}`);
+		const title = blocked ? "(private window)" : r.title;
+		if (!this.current || this.current.process !== r.process || this.current.title !== title) {
+			if (this.current) this.recent.push({ ...this.current, until: Date.now() });
+			this.recent = this.recent.slice(-15);
+			this.current = { process: r.process, title, since: Date.now() };
+		}
+	}
+
 	start(intervalMs = 15_000): void {
 		if (!this.cfg.screen.watchWindows || this.timer) return;
-		const tick = async () => {
-			const r = await winHelper.send<{ ok: boolean; title: string; process: string; idleMs: number }>("poll");
-			if (!r.ok) return;
-			this.idleMs = r.idleMs;
-			const blocked = this.isBlocked(`${r.process} ${r.title}`);
-			const title = blocked ? "(private window)" : r.title;
-			if (!this.current || this.current.process !== r.process || this.current.title !== title) {
-				if (this.current) this.recent.push({ ...this.current, until: Date.now() });
-				this.recent = this.recent.slice(-15);
-				this.current = { process: r.process, title, since: Date.now() };
-			}
-		};
-		void tick();
-		this.timer = setInterval(() => void tick(), intervalMs);
+		void this.refresh();
+		this.timer = setInterval(() => void this.refresh(), intervalMs);
 	}
 
 	stop(): void {
@@ -69,13 +71,18 @@ export class ScreenWatcher {
 		return `Screen: he's in ${this.current.process} ("${this.current.title.slice(0, 80)}") for ${this.minutesOnCurrentApp()} min.${away} Recent apps: ${recent || "n/a"}.`;
 	}
 
-	/** Grab a downscaled screenshot as base64 JPEG and delete the file immediately. */
-	async screenshot(): Promise<{ ok: true; base64: string } | { ok: false; error: string }> {
-		if (!this.cfg.screen.allowScreenshots) return { ok: false, error: "Screenshots are turned off in settings." };
-		if (this.current && this.isBlocked(`${this.current.process} ${this.current.title}`))
+	/**
+	 * Grab a screenshot as base64 and delete the file immediately. The caller checks permission
+	 * (`allowScreenshots`, or his approval for this one shot). A private window in front always blocks it.
+	 * `forText`: full resolution PNG, so small text stays readable; otherwise a downscaled JPEG for a quick look.
+	 */
+	async screenshot(opts: { forText?: boolean } = {}): Promise<{ ok: true; base64: string } | { ok: false; error: string }> {
+		await this.refresh();
+		// refresh() stores a blocked window's title as "(private window)", so check for that too.
+		if (this.current && (this.current.title === "(private window)" || this.isBlocked(`${this.current.process} ${this.current.title}`)))
 			return { ok: false, error: "A private window is in front; not looking." };
-		const file = join(paths.screenshots, `peek-${Date.now()}.jpg`);
-		const r = await winHelper.send<{ ok: boolean; error?: string }>(`screenshot ${file} 1280`, 20_000);
+		const file = join(paths.screenshots, `peek-${Date.now()}.${opts.forText ? "png" : "jpg"}`);
+		const r = await winHelper.send<{ ok: boolean; error?: string }>(`screenshot ${file} ${opts.forText ? 2560 : 1280}`, 20_000);
 		if (!r.ok) return { ok: false, error: r.error ?? "screenshot failed" };
 		const base64 = readFileSync(file).toString("base64");
 		rmSync(file, { force: true });
